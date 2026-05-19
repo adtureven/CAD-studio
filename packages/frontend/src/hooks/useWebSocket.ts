@@ -1,0 +1,158 @@
+import { useEffect, useRef, useCallback } from "react";
+import { useChatStore } from "@/stores/chatStore";
+import { useViewportStore } from "@/stores/viewportStore";
+import { useParameterStore } from "@/stores/parameterStore";
+import { useLibraryStore } from "@/stores/libraryStore";
+import type { StreamEvent } from "@/types/chat";
+import type { ParameterDef } from "@/types/model";
+
+const WS_URL = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/chat/ws`;
+
+export function useWebSocket() {
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[WS] Connected");
+    };
+
+    ws.onmessage = (event) => {
+      const data: StreamEvent = JSON.parse(event.data);
+      handleMessage(data);
+    };
+
+    ws.onclose = () => {
+      console.log("[WS] Disconnected, reconnecting...");
+      reconnectTimer.current = setTimeout(connect, 2000);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  const sendMessage = useCallback(
+    (message: string, images?: string[]) => {
+      const chatStore = useChatStore.getState();
+      let conversationId = chatStore.activeConversationId;
+      if (!conversationId) {
+        conversationId = chatStore.createConversation();
+      }
+
+      chatStore.addUserMessage(message, images);
+
+      const conversation = chatStore.conversations.get(conversationId);
+      const history =
+        conversation?.messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .slice(0, -1)
+          .map((m) => ({ role: m.role, content: m.content })) ?? [];
+
+      wsRef.current?.send(
+        JSON.stringify({
+          type: "chat_request",
+          payload: {
+            conversation_id: conversationId,
+            message,
+            images: images || [],
+            model: chatStore.selectedModel,
+            enable_thinking: true,
+            history,
+          },
+        })
+      );
+    },
+    []
+  );
+
+  const updateParameters = useCallback(
+    (code: string, parameters: Record<string, number | string | boolean>) => {
+      const conversationId =
+        useChatStore.getState().activeConversationId || "default";
+      useViewportStore.getState().setLoading(true);
+
+      wsRef.current?.send(
+        JSON.stringify({
+          type: "param_update",
+          payload: {
+            conversation_id: conversationId,
+            code,
+            parameters,
+          },
+        })
+      );
+    },
+    []
+  );
+
+  return { sendMessage, updateParameters };
+}
+
+function handleMessage(event: StreamEvent) {
+  const chatStore = useChatStore.getState();
+  const viewportStore = useViewportStore.getState();
+  const parameterStore = useParameterStore.getState();
+
+  switch (event.type) {
+    case "thinking_chunk":
+      chatStore.appendThinkingChunk(event.payload.content as string);
+      break;
+
+    case "response_chunk":
+      chatStore.appendResponseChunk(event.payload.content as string);
+      break;
+
+    case "code_generated":
+      parameterStore.setCode(event.payload.code as string);
+      break;
+
+    case "cad_executing":
+      viewportStore.setLoading(true);
+      break;
+
+    case "cad_result": {
+      const modelUrl = event.payload.model_url as string;
+      const format = (event.payload.format as "gltf" | "step") || "step";
+      viewportStore.setModelUrl(modelUrl, format);
+      parameterStore.setParameters(
+        event.payload.parameters as ParameterDef[]
+      );
+      const code = parameterStore.currentCode;
+      const convTitle = chatStore.getActiveConversation()?.title || "Model";
+      useLibraryStore.getState().addModel({
+        name: convTitle.slice(0, 30),
+        code,
+        modelUrl,
+        format,
+      });
+      break;
+    }
+
+    case "cad_error":
+      viewportStore.setError(event.payload.error as string);
+      break;
+
+    case "done":
+      chatStore.finalizeMessage();
+      break;
+
+    case "error":
+      chatStore.setStreaming(false);
+      viewportStore.setError(event.payload.message as string);
+      break;
+  }
+}

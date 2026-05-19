@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+package-lock.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build
+packages/frontend/dist/
+*.egg-info/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated assets
+packages/backend/generated/
+*.gltf
+*.glb
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log

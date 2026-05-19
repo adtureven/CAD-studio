@@ -1,0 +1,293 @@
+import { Star, Folder, Clock, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { useParameterStore } from "@/stores/parameterStore";
+import { useViewportStore } from "@/stores/viewportStore";
+import { useLibraryStore, type SavedModel } from "@/stores/libraryStore";
+import type { ParameterDef } from "@/types/model";
+
+interface ExampleModel {
+  id: string;
+  name: string;
+  category: string;
+  code: string;
+}
+
+const EXAMPLE_MODELS: ExampleModel[] = [
+  {
+    id: "1",
+    name: "Simple Box",
+    category: "Primitives",
+    code: `import cadquery as cq
+
+params = {
+    "width": 50.0,
+    "height": 30.0,
+    "depth": 40.0,
+    "fillet": 3.0,
+}
+
+# PARAMETER_DEFS: [
+#   {"name": "width", "label": "Width (mm)", "type": "number", "default": 50.0, "current_value": 50.0, "min": 10, "max": 200, "step": 1, "group": "Dimensions"},
+#   {"name": "height", "label": "Height (mm)", "type": "number", "default": 30.0, "current_value": 30.0, "min": 10, "max": 200, "step": 1, "group": "Dimensions"},
+#   {"name": "depth", "label": "Depth (mm)", "type": "number", "default": 40.0, "current_value": 40.0, "min": 10, "max": 200, "step": 1, "group": "Dimensions"},
+#   {"name": "fillet", "label": "Fillet Radius", "type": "number", "default": 3.0, "current_value": 3.0, "min": 0, "max": 15, "step": 0.5, "group": "Features"}
+# ]
+
+result = (
+    cq.Workplane("XY")
+    .box(params["width"], params["height"], params["depth"])
+    .edges("|Z")
+    .fillet(params["fillet"])
+)`,
+  },
+  {
+    id: "2",
+    name: "Bracket",
+    category: "Mechanical",
+    code: `import cadquery as cq
+
+params = {
+    "length": 80.0,
+    "width": 40.0,
+    "thickness": 5.0,
+    "hole_diameter": 8.0,
+    "bend_height": 30.0,
+}
+
+# PARAMETER_DEFS: [
+#   {"name": "length", "label": "Length (mm)", "type": "number", "default": 80.0, "current_value": 80.0, "min": 30, "max": 200, "step": 1, "group": "Dimensions"},
+#   {"name": "width", "label": "Width (mm)", "type": "number", "default": 40.0, "current_value": 40.0, "min": 20, "max": 100, "step": 1, "group": "Dimensions"},
+#   {"name": "thickness", "label": "Thickness", "type": "number", "default": 5.0, "current_value": 5.0, "min": 2, "max": 15, "step": 0.5, "group": "Dimensions"},
+#   {"name": "hole_diameter", "label": "Hole Diameter", "type": "number", "default": 8.0, "current_value": 8.0, "min": 3, "max": 20, "step": 0.5, "group": "Features"},
+#   {"name": "bend_height", "label": "Bend Height", "type": "number", "default": 30.0, "current_value": 30.0, "min": 10, "max": 80, "step": 1, "group": "Dimensions"}
+# ]
+
+result = (
+    cq.Workplane("XY")
+    .box(params["length"], params["width"], params["thickness"])
+    .faces(">Z")
+    .workplane()
+    .rect(params["length"] - 20, params["width"] - 10, forConstruction=True)
+    .vertices()
+    .hole(params["hole_diameter"])
+    .faces("<X")
+    .workplane()
+    .rect(params["width"], params["bend_height"])
+    .extrude(params["thickness"])
+)`,
+  },
+  {
+    id: "3",
+    name: "Gear",
+    category: "Mechanical",
+    code: `import cadquery as cq
+import math
+
+params = {
+    "num_teeth": 20,
+    "module": 2.5,
+    "thickness": 10.0,
+    "bore_diameter": 12.0,
+}
+
+# PARAMETER_DEFS: [
+#   {"name": "num_teeth", "label": "Number of Teeth", "type": "integer", "default": 20, "current_value": 20, "min": 8, "max": 60, "step": 1, "group": "Gear"},
+#   {"name": "module", "label": "Module", "type": "number", "default": 2.5, "current_value": 2.5, "min": 1, "max": 5, "step": 0.5, "group": "Gear"},
+#   {"name": "thickness", "label": "Thickness (mm)", "type": "number", "default": 10.0, "current_value": 10.0, "min": 3, "max": 30, "step": 1, "group": "Dimensions"},
+#   {"name": "bore_diameter", "label": "Bore Diameter", "type": "number", "default": 12.0, "current_value": 12.0, "min": 4, "max": 30, "step": 1, "group": "Dimensions"}
+# ]
+
+pitch_radius = params["num_teeth"] * params["module"] / 2
+outer_radius = pitch_radius + params["module"]
+inner_radius = pitch_radius - 1.25 * params["module"]
+
+result = (
+    cq.Workplane("XY")
+    .circle(outer_radius)
+    .extrude(params["thickness"])
+    .faces(">Z")
+    .workplane()
+    .hole(params["bore_diameter"])
+)`,
+  },
+  {
+    id: "4",
+    name: "Enclosure",
+    category: "Electronics",
+    code: `import cadquery as cq
+
+params = {
+    "width": 100.0,
+    "depth": 60.0,
+    "height": 30.0,
+    "wall_thickness": 2.5,
+    "corner_radius": 4.0,
+}
+
+# PARAMETER_DEFS: [
+#   {"name": "width", "label": "Width (mm)", "type": "number", "default": 100.0, "current_value": 100.0, "min": 40, "max": 250, "step": 1, "group": "Dimensions"},
+#   {"name": "depth", "label": "Depth (mm)", "type": "number", "default": 60.0, "current_value": 60.0, "min": 30, "max": 150, "step": 1, "group": "Dimensions"},
+#   {"name": "height", "label": "Height (mm)", "type": "number", "default": 30.0, "current_value": 30.0, "min": 15, "max": 80, "step": 1, "group": "Dimensions"},
+#   {"name": "wall_thickness", "label": "Wall Thickness", "type": "number", "default": 2.5, "current_value": 2.5, "min": 1, "max": 8, "step": 0.5, "group": "Features"},
+#   {"name": "corner_radius", "label": "Corner Radius", "type": "number", "default": 4.0, "current_value": 4.0, "min": 1, "max": 15, "step": 0.5, "group": "Features"}
+# ]
+
+result = (
+    cq.Workplane("XY")
+    .rect(params["width"], params["depth"])
+    .extrude(params["height"])
+    .edges("|Z")
+    .fillet(params["corner_radius"])
+    .faces(">Z")
+    .shell(-params["wall_thickness"])
+)`,
+  },
+];
+
+function parseParameterDefs(code: string): ParameterDef[] {
+  const match = code.match(/# PARAMETER_DEFS: \[([\s\S]*?)# \]/);
+  if (!match) return [];
+  try {
+    const jsonStr = match[1]!.replace(/^#\s*/gm, "");
+    return JSON.parse(`[${jsonStr}]`);
+  } catch {
+    return [];
+  }
+}
+
+export function Sidebar() {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const { setCode, setParameters } = useParameterStore();
+  const { setModelUrl, setPreviewModelId, setLoading } = useViewportStore();
+  const { savedModels, removeModel } = useLibraryStore();
+
+  const handleSavedModelClick = (model: SavedModel) => {
+    setSelectedId(model.id);
+    setCode(model.code);
+    const params = parseParameterDefs(model.code);
+    setParameters(params);
+    setModelUrl(model.modelUrl, model.format);
+  };
+
+  const handleModelClick = async (model: ExampleModel) => {
+    setSelectedId(model.id);
+    setCode(model.code);
+    const params = parseParameterDefs(model.code);
+    setParameters(params);
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/cad/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: model.code }),
+      });
+      const data = await res.json();
+      if (data.success && data.model_url) {
+        setModelUrl(data.model_url, data.format || "step");
+        if (data.parameters) setParameters(data.parameters);
+      } else {
+        setPreviewModelId(model.id);
+      }
+    } catch {
+      setPreviewModelId(model.id);
+    }
+  };
+
+  return (
+    <aside className="h-full flex flex-col overflow-hidden">
+      <div className="p-3 border-b border-border">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-1.5">
+          <Folder className="w-3.5 h-3.5" />
+          Model Library
+        </h2>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {EXAMPLE_MODELS.map((model) => (
+          <button
+            key={model.id}
+            onClick={() => handleModelClick(model)}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors group ${
+              selectedId === model.id
+                ? "bg-primary-light border border-primary/20"
+                : "hover:bg-primary-light"
+            }`}
+          >
+            <div
+              className={`w-9 h-9 rounded-md flex items-center justify-center ${
+                selectedId === model.id
+                  ? "bg-primary text-white"
+                  : "bg-cream-dark text-text-secondary"
+              }`}
+            >
+              <div className="w-5 h-5 border-2 border-current rounded-sm" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary truncate">
+                {model.name}
+              </div>
+              <div className="text-xs text-text-secondary">{model.category}</div>
+            </div>
+            <Star
+              className={`w-3.5 h-3.5 transition-opacity ${
+                selectedId === model.id
+                  ? "text-primary opacity-100"
+                  : "text-text-secondary opacity-0 group-hover:opacity-100"
+              }`}
+            />
+          </button>
+        ))}
+
+        {savedModels.length > 0 && (
+          <>
+            <div className="pt-3 pb-1 px-3">
+              <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-3 h-3" />
+                Generated
+              </h3>
+            </div>
+            {savedModels.map((model) => (
+              <button
+                key={model.id}
+                onClick={() => handleSavedModelClick(model)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors group ${
+                  selectedId === model.id
+                    ? "bg-primary-light border border-primary/20"
+                    : "hover:bg-primary-light"
+                }`}
+              >
+                <div
+                  className={`w-9 h-9 rounded-md flex items-center justify-center ${
+                    selectedId === model.id
+                      ? "bg-primary text-white"
+                      : "bg-cream-dark text-text-secondary"
+                  }`}
+                >
+                  <div className="w-5 h-5 border-2 border-current rounded" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-text-primary truncate">
+                    {model.name}
+                  </div>
+                  <div className="text-xs text-text-secondary">
+                    {new Date(model.createdAt).toLocaleTimeString()}
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeModel(model.id);
+                  }}
+                  className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 text-text-secondary hover:text-red-500 transition-all"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </button>
+            ))}
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
