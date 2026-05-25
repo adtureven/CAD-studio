@@ -146,6 +146,31 @@ function handleMessage(event: StreamEvent) {
       viewportStore.setError(event.payload.error as string);
       break;
 
+    case "fix_start": {
+      const attempt = event.payload.attempt as number;
+      const maxAttempts = event.payload.max_attempts as number;
+      const fixError = event.payload.error as string;
+      const shortErr = fixError.includes("\n")
+        ? fixError.split("\n").filter((l: string) => l.trim()).pop() || fixError
+        : fixError;
+      chatStore.finalizeMessage();
+      chatStore.appendResponseChunk(
+        `**Auto-fix (${attempt}/${maxAttempts})**\n\nError: \`${shortErr}\`\n\nRetrying...\n\n`
+      );
+      viewportStore.setLoading(true);
+      break;
+    }
+
+    case "fix_failed": {
+      const failError = event.payload.error as string;
+      chatStore.finalizeMessage();
+      chatStore.appendResponseChunk(
+        `**All fix attempts failed**\n\n\`\`\`\n${failError}\n\`\`\`\n\nPlease try describing the model differently or simplify the geometry.`
+      );
+      viewportStore.setLoading(false);
+      break;
+    }
+
     case "done":
       chatStore.finalizeMessage();
       break;

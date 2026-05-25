@@ -83,10 +83,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   appendThinkingChunk: (chunk) =>
-    set((state) => ({ currentThinking: state.currentThinking + chunk })),
+    set((state) => ({ currentThinking: state.currentThinking + chunk, isStreaming: true })),
 
   appendResponseChunk: (chunk) =>
-    set((state) => ({ currentResponse: state.currentResponse + chunk })),
+    set((state) => ({ currentResponse: state.currentResponse + chunk, isStreaming: true })),
 
   setCode: (_code) => {},
 

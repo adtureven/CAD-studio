@@ -25,6 +25,8 @@ export interface StreamEvent {
     | "cad_executing"
     | "cad_result"
     | "cad_error"
+    | "fix_start"
+    | "fix_failed"
     | "done"
     | "error";
   payload: Record<string, unknown>;

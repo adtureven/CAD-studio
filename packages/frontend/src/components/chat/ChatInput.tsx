@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Send, ImagePlus, Loader2 } from "lucide-react";
 
 interface ChatInputProps {
@@ -11,6 +11,17 @@ export function ChatInput({ onSendMessage, isStreaming }: ChatInputProps) {
   const [images, setImages] = useState<string[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const adjustHeight = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 128) + "px";
+  }, []);
+
+  useEffect(() => {
+    adjustHeight();
+  }, [message, adjustHeight]);
 
   const handleSend = useCallback(() => {
     const trimmed = message.trim();
@@ -91,8 +102,8 @@ export function ChatInput({ onSendMessage, isStreaming }: ChatInputProps) {
           onKeyDown={handleKeyDown}
           placeholder="Describe a 3D model..."
           rows={1}
-          className="flex-1 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/60 outline-none max-h-32"
-          style={{ minHeight: "24px" }}
+          className="flex-1 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/60 outline-none overflow-y-auto"
+          style={{ minHeight: "24px", maxHeight: "128px" }}
         />
 
         <button

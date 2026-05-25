@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useParameterStore } from "@/stores/parameterStore";
 import { useViewportStore } from "@/stores/viewportStore";
 import { useLibraryStore, type SavedModel } from "@/stores/libraryStore";
+import { useChatStore } from "@/stores/chatStore";
 import type { ParameterDef } from "@/types/model";
 
 interface ExampleModel {
@@ -162,6 +163,7 @@ export function Sidebar() {
   const { savedModels, removeModel } = useLibraryStore();
 
   const handleSavedModelClick = (model: SavedModel) => {
+    if (useChatStore.getState().isStreaming) return;
     setSelectedId(model.id);
     setCode(model.code);
     const params = parseParameterDefs(model.code);
@@ -170,6 +172,7 @@ export function Sidebar() {
   };
 
   const handleModelClick = async (model: ExampleModel) => {
+    if (useChatStore.getState().isStreaming) return;
     setSelectedId(model.id);
     setCode(model.code);
     const params = parseParameterDefs(model.code);
@@ -183,6 +186,7 @@ export function Sidebar() {
         body: JSON.stringify({ code: model.code }),
       });
       const data = await res.json();
+      if (useChatStore.getState().isStreaming) return;
       if (data.success && data.model_url) {
         setModelUrl(data.model_url, data.format || "step");
         if (data.parameters) setParameters(data.parameters);
@@ -190,7 +194,9 @@ export function Sidebar() {
         setPreviewModelId(model.id);
       }
     } catch {
-      setPreviewModelId(model.id);
+      if (!useChatStore.getState().isStreaming) {
+        setPreviewModelId(model.id);
+      }
     }
   };
 

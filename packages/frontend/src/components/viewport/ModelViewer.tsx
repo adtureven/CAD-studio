@@ -316,7 +316,13 @@ function StepModel({ url }: { url: string }) {
 
     loadStepFromUrl(url)
       .then((data) => {
-        if (!cancelled) setStepData(data);
+        if (cancelled) return;
+        if (data.geometries.length === 0) {
+          useViewportStore.getState().setError("STEP file parsed but contains no geometry");
+          setError(true);
+        } else {
+          setStepData(data);
+        }
       })
       .catch(() => {
         if (!cancelled) setError(true);

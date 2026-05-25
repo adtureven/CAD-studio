@@ -147,10 +147,13 @@ async def handle_chat_request(websocket: WebSocket, payload: dict):
                             },
                         })
                     else:
+                        error_msg = result.get("error", "Unknown error")
+                        short_error = error_msg.split("\n")[-1].strip() if "\n" in error_msg else error_msg
                         await websocket.send_json({
-                            "type": "cad_error",
+                            "type": "fix_failed",
                             "payload": {
-                                "error": result["error"],
+                                "error": short_error,
+                                "full_error": error_msg,
                                 "conversation_id": conversation_id,
                             },
                         })
@@ -173,9 +176,11 @@ async def handle_chat_request(websocket: WebSocket, payload: dict):
 async def _try_fix_code(provider, model, code, error, websocket, conversation_id, enable_thinking):
     for attempt in range(MAX_FIX_ATTEMPTS):
         await websocket.send_json({
-            "type": "response_chunk",
+            "type": "fix_start",
             "payload": {
-                "content": f"\n\n> Code execution failed, auto-fixing (attempt {attempt + 1})...\n",
+                "attempt": attempt + 1,
+                "max_attempts": MAX_FIX_ATTEMPTS,
+                "error": error,
                 "conversation_id": conversation_id,
             },
         })
@@ -190,8 +195,17 @@ async def _try_fix_code(provider, model, code, error, websocket, conversation_id
 
         fix_response = ""
         async for chunk in provider.stream_generate(fix_request):
-            if chunk.type == "content":
+            if chunk.type == "thinking":
+                await websocket.send_json({
+                    "type": "thinking_chunk",
+                    "payload": {"content": chunk.content, "conversation_id": conversation_id},
+                })
+            elif chunk.type == "content":
                 fix_response += chunk.content
+                await websocket.send_json({
+                    "type": "response_chunk",
+                    "payload": {"content": chunk.content, "conversation_id": conversation_id},
+                })
 
         fixed_code = extract_code_from_response(fix_response)
         if not fixed_code:
@@ -202,6 +216,11 @@ async def _try_fix_code(provider, model, code, error, websocket, conversation_id
             "payload": {"code": fixed_code, "conversation_id": conversation_id},
         })
 
+        await websocket.send_json({
+            "type": "cad_executing",
+            "payload": {"conversation_id": conversation_id},
+        })
+
         result = execute_cadquery(fixed_code)
         if result["success"]:
             return result
@@ -209,7 +228,7 @@ async def _try_fix_code(provider, model, code, error, websocket, conversation_id
         code = fixed_code
         error = result["error"]
 
-    return {"success": False, "error": f"Failed after {MAX_FIX_ATTEMPTS} fix attempts: {error}"}
+    return {"success": False, "error": error}
 
 
 async def handle_param_update(websocket: WebSocket, payload: dict):

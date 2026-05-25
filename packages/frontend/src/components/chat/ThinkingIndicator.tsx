@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ChevronDown, ChevronRight, Brain } from "lucide-react";
 
 interface ThinkingIndicatorProps {
@@ -6,7 +6,14 @@ interface ThinkingIndicatorProps {
 }
 
 export function ThinkingIndicator({ content }: ThinkingIndicatorProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (expanded && contentRef.current) {
+      contentRef.current.scrollTop = contentRef.current.scrollHeight;
+    }
+  }, [content, expanded]);
 
   return (
     <div className="flex gap-2.5">
@@ -28,7 +35,10 @@ export function ThinkingIndicator({ content }: ThinkingIndicatorProps) {
         </button>
 
         {expanded && (
-          <div className="rounded-lg bg-cream border border-border-light p-3 text-xs text-text-secondary italic leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap">
+          <div
+            ref={contentRef}
+            className="rounded-lg bg-cream border border-border-light p-3 text-xs text-text-secondary italic leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap"
+          >
             {content}
           </div>
         )}

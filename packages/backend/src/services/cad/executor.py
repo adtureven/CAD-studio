@@ -197,6 +197,12 @@ def execute_cadquery(code: str, parameters: Optional[dict] = None, output_format
         params = extract_parameters(code)
 
         if output_format == "step" and step_path.exists():
+            if step_path.stat().st_size < 100:
+                return {
+                    "success": False,
+                    "error": "STEP export produced empty geometry — the model may have failed silently (common causes: fillet radius too large, self-intersecting wire, or failed boolean union)",
+                    "execution_time_ms": elapsed_ms,
+                }
             return {
                 "success": True,
                 "model_url": f"/assets/{model_filename}.step",

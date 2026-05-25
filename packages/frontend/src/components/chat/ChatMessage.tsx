@@ -26,10 +26,10 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
 
       <div
-        className={`flex-1 min-w-0 ${isUser ? "text-right" : "text-left"}`}
+        className={`flex-1 min-w-0 ${isUser ? "flex justify-end" : ""}`}
       >
         <div
-          className={`inline-block rounded-xl px-3.5 py-2.5 text-sm leading-relaxed max-w-full ${
+          className={`inline-block rounded-xl px-3.5 py-2.5 text-sm leading-relaxed max-w-[85%] text-left ${
             isUser
               ? "bg-primary text-white rounded-tr-sm"
               : "bg-cream text-text-primary rounded-tl-sm"

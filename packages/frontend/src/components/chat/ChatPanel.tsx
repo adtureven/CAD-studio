@@ -32,7 +32,7 @@ export function ChatPanel({ onSendMessage }: ChatPanelProps) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [conversation?.messages, currentResponse]);
+  }, [conversation?.messages, currentResponse, currentThinking]);
 
   return (
     <aside className="h-full flex flex-col overflow-hidden">
