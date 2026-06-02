@@ -4,10 +4,12 @@ package-lock.json
 __pycache__/
 *.pyc
 .venv/
+.venv*/
 venv/
 
 # Build
 packages/frontend/dist/
+*.tsbuildinfo
 *.egg-info/
 
 # Environment
@@ -25,6 +27,7 @@ packages/frontend/dist/
 Thumbs.db
 
 # Generated assets
+packages/backend/.cache/
 packages/backend/generated/
 *.gltf
 *.glb
