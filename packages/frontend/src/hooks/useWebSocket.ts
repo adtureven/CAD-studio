@@ -5,8 +5,9 @@ import { useParameterStore } from "@/stores/parameterStore";
 import { useLibraryStore } from "@/stores/libraryStore";
 import type { StreamEvent } from "@/types/chat";
 import type { ParameterDef } from "@/types/model";
+import { getBackendWsUrl } from "@/utils/backendWs";
 
-const WS_URL = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/chat/ws`;
+const WS_URL = getBackendWsUrl("/api/chat/ws");
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);

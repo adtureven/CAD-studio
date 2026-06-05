@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -241,6 +242,19 @@ async def _run_claude_code(
         stderr=asyncio.subprocess.PIPE,
     )
 
+    async def send_heartbeat():
+        while process.returncode is None:
+            await asyncio.sleep(8)
+            if process.returncode is not None:
+                break
+            try:
+                await websocket.send_json({
+                    "type": "agent_heartbeat",
+                    "payload": {"conversation_id": conversation_id},
+                })
+            except Exception:
+                break
+
     async def read_stdout():
         assert process.stdout is not None
         async for raw_line in process.stdout:
@@ -276,8 +290,14 @@ async def _run_claude_code(
                     "payload": {"content": line, "conversation_id": conversation_id},
                 })
 
-    await asyncio.gather(read_stdout(), read_stderr())
-    return await process.wait()
+    heartbeat_task = asyncio.create_task(send_heartbeat())
+    try:
+        await asyncio.gather(read_stdout(), read_stderr())
+        return await process.wait()
+    finally:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
 
 
 async def _render_cadquery_file(websocket: WebSocket, conversation_id: str, cad_file: Path):

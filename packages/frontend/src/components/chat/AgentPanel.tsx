@@ -15,6 +15,7 @@ import type { ParameterDef } from "@/types/model";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { useParameterStore } from "@/stores/parameterStore";
 import { useViewportStore } from "@/stores/viewportStore";
+import { getBackendWsUrl } from "@/utils/backendWs";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -27,21 +28,14 @@ type AgentEntry = {
   status?: "running" | "success" | "error";
 };
 
+type AgentRunStatus = {
+  label: string;
+  detail?: string;
+  startedAt: number;
+  updatedAt: number;
+};
+
 type ConnectionState = "connecting" | "connected" | "disconnected";
-
-function getAgentWsUrls() {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const rawHostname = window.location.hostname;
-  const hostname = rawHostname === "0.0.0.0" || rawHostname === "localhost" ? "127.0.0.1" : rawHostname;
-  const sameOriginPort = window.location.port ? `:${window.location.port}` : "";
-  const sameOriginUrl = `${protocol}//${hostname}${sameOriginPort}/api/agent/ws`;
-
-  if (!window.location.port || window.location.port === "8000") {
-    return [sameOriginUrl];
-  }
-
-  return [`${protocol}//${hostname}:8000/api/agent/ws`, sameOriginUrl];
-}
 
 export function AgentPanel() {
   const selectedModel = useChatStore((s) => s.selectedModel);
@@ -50,11 +44,12 @@ export function AgentPanel() {
   const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null);
+  const [clock, setClock] = useState(Date.now());
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
-  const wsUrlsRef = useRef(getAgentWsUrls());
-  const wsUrlIndexRef = useRef(0);
+  const wsUrlRef = useRef(getBackendWsUrl("/api/agent/ws"));
   const lastActiveConversationIdRef = useRef<string | null>(activeConversationId);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -74,8 +69,13 @@ export function AgentPanel() {
       setConnectionState("connecting");
 
       let opened = false;
-      const url = (wsUrlsRef.current[wsUrlIndexRef.current] ?? wsUrlsRef.current[0]) as string;
-      const ws = new WebSocket(url);
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(wsUrlRef.current);
+      } catch {
+        reconnectTimerRef.current = window.setTimeout(connect, 1200);
+        return;
+      }
       const openTimer = window.setTimeout(() => {
         if (!opened) ws.close();
       }, 2500);
@@ -89,7 +89,7 @@ export function AgentPanel() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          handleAgentEvent(data, setEntries, setIsRunning);
+          handleAgentEvent(data, setEntries, setIsRunning, setRunStatus);
         } catch {
           setEntries((prev) => [
             ...prev,
@@ -110,9 +110,7 @@ export function AgentPanel() {
         if (disposed) return;
         setConnectionState("disconnected");
         setIsRunning(false);
-        if (!opened && wsUrlsRef.current.length > 1) {
-          wsUrlIndexRef.current = (wsUrlIndexRef.current + 1) % wsUrlsRef.current.length;
-        }
+        setRunStatus(null);
         reconnectTimerRef.current = window.setTimeout(connect, 1200);
       };
     };
@@ -131,11 +129,19 @@ export function AgentPanel() {
     lastActiveConversationIdRef.current = activeConversationId;
     setEntries([]);
     setIsRunning(false);
+    setRunStatus(null);
   }, [activeConversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [entries]);
+
+  useEffect(() => {
+    if (!isRunning) return;
+    setClock(Date.now());
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning]);
 
   const send = useCallback(() => {
     const message = input.trim();
@@ -158,6 +164,7 @@ export function AgentPanel() {
     ]);
     setInput("");
     setIsRunning(true);
+    setRunStatus(makeRunStatus("Starting Claude Code", "Launching isolated cadquery.py session"));
     wsRef.current.send(
       JSON.stringify({
         type: "agent_request",
@@ -178,6 +185,7 @@ export function AgentPanel() {
   }, [connectionState, isRunning]);
 
   const isConnected = connectionState === "connected";
+  const elapsedSeconds = runStatus ? Math.max(0, Math.floor((clock - runStatus.startedAt) / 1000)) : 0;
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-surface text-text-primary">
@@ -219,10 +227,7 @@ export function AgentPanel() {
         ))}
 
         {isRunning && (
-          <div className="flex items-center gap-2 text-xs text-text-secondary px-2 py-1">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
-            Agent is working
-          </div>
+          <AgentRunStatusView status={runStatus} elapsedSeconds={elapsedSeconds} />
         )}
         <div ref={bottomRef} />
       </div>
@@ -262,16 +267,24 @@ export function AgentPanel() {
 function handleAgentEvent(
   data: { type: string; payload?: Record<string, unknown> },
   setEntries: Dispatch<SetStateAction<AgentEntry[]>>,
-  setIsRunning: Dispatch<SetStateAction<boolean>>
+  setIsRunning: Dispatch<SetStateAction<boolean>>,
+  setRunStatus: Dispatch<SetStateAction<AgentRunStatus | null>>
 ) {
   const payload = data.payload ?? {};
 
+  if (data.type === "agent_heartbeat") {
+    updateRunStatus(setRunStatus, "Waiting for model output", "Claude Code is still running");
+    return;
+  }
+
   if (data.type === "agent_start") {
+    updateRunStatus(setRunStatus, "Starting Claude Code", "Request sent to Mimo");
     return;
   }
 
   if (data.type === "agent_done") {
     setIsRunning(false);
+    setRunStatus(null);
     useParameterStore.getState().setExecuting(false);
     useViewportStore.getState().setLoading(false);
     const code = Number(payload.return_code);
@@ -293,8 +306,11 @@ function handleAgentEvent(
     const message = String(payload.message ?? payload.content ?? "");
     if (data.type === "agent_error") {
       setIsRunning(false);
+      setRunStatus(null);
       useParameterStore.getState().setExecuting(false);
       useViewportStore.getState().setError(message || "Agent error");
+    } else {
+      updateRunStatus(setRunStatus, "Reading agent output");
     }
     setEntries((prev) => [
       ...prev,
@@ -310,6 +326,7 @@ function handleAgentEvent(
   }
 
   if (data.type === "agent_text") {
+    updateRunStatus(setRunStatus, "Reading assistant output");
     setEntries((prev) => [
       ...prev,
       {
@@ -323,6 +340,7 @@ function handleAgentEvent(
   }
 
   if (data.type === "agent_code") {
+    updateRunStatus(setRunStatus, "Reading updated cadquery.py");
     const code = typeof payload.code === "string" ? payload.code : "";
     if (code) useParameterStore.getState().setCode(code);
     setEntries((prev) => [
@@ -338,6 +356,7 @@ function handleAgentEvent(
   }
 
   if (data.type === "agent_cad_executing") {
+    updateRunStatus(setRunStatus, "Rendering cadquery.py", "Executing CadQuery backend");
     useParameterStore.getState().setExecuting(true);
     useViewportStore.getState().setLoading(true);
     setEntries((prev) => [
@@ -354,6 +373,7 @@ function handleAgentEvent(
 
   if (data.type === "agent_cad_result") {
     setIsRunning(false);
+    setRunStatus(null);
     const modelUrl = typeof payload.model_url === "string" ? payload.model_url : "";
     const format = payload.format === "gltf" ? "gltf" : "step";
     const parameterStore = useParameterStore.getState();
@@ -402,6 +422,7 @@ function handleAgentEvent(
   }
 
   if (data.type === "agent_cad_error") {
+    updateRunStatus(setRunStatus, "CAD render failed", "Preparing repair if attempts remain");
     const error = String(payload.error ?? "CAD execution failed");
     useParameterStore.getState().setExecuting(false);
     useViewportStore.getState().setError(error);
@@ -426,6 +447,7 @@ function handleAgentEvent(
     setIsRunning(true);
     const attempt = Number(payload.attempt ?? 1);
     const maxAttempts = Number(payload.max_attempts ?? attempt);
+    updateRunStatus(setRunStatus, `Repairing CAD (${attempt}/${maxAttempts})`, "Feeding render error back to Claude Code");
     setEntries((prev) => [
       ...prev,
       {
@@ -439,6 +461,8 @@ function handleAgentEvent(
 
   if (data.type === "agent_event") {
     const event = payload.event;
+    const activity = statusFromClaudeEvent(event);
+    if (activity) updateRunStatus(setRunStatus, activity.label, activity.detail);
     const visibleEntries = summarizeClaudeEvent(event);
     if (visibleEntries.length > 0) {
       setEntries((prev) => {
@@ -508,6 +532,47 @@ function summarizeClaudeEvent(event: unknown): AgentEntry[] {
   return [];
 }
 
+function statusFromClaudeEvent(event: unknown): Pick<AgentRunStatus, "label" | "detail"> | null {
+  const item = asRecord(event);
+  const type = String(item.type ?? "");
+  const message = asRecord(item.message);
+  const content = message.content ?? item.content;
+
+  if (type === "system" && String(item.subtype ?? "") === "init") {
+    return { label: "Initializing Claude Code" };
+  }
+
+  if (type === "assistant" || type === "message") {
+    const toolNames = toolUseNames(content);
+    if (toolNames.length > 0) {
+      const primaryTool = toolNames[0];
+      return {
+        label: `Running tool: ${primaryTool}`,
+        detail: toolNames.length > 1 ? `${toolNames.length} tool calls in this step` : undefined,
+      };
+    }
+    if (hasTextContent(content)) {
+      return { label: "Reading assistant output" };
+    }
+  }
+
+  if (type === "user" && hasToolResult(content)) {
+    return { label: "Processing tool result" };
+  }
+
+  if (type === "result") {
+    return Boolean(item.is_error)
+      ? { label: "Agent failed" }
+      : { label: "Finalizing agent output" };
+  }
+
+  if (type === "error") {
+    return { label: "Agent error" };
+  }
+
+  return null;
+}
+
 function entriesFromContent(content: unknown, fromUser = false): AgentEntry[] {
   if (typeof content === "string" && content.trim()) {
     return [
@@ -561,6 +626,47 @@ function entriesFromContent(content: unknown, fromUser = false): AgentEntry[] {
   }
 
   return entries;
+}
+
+function makeRunStatus(label: string, detail?: string): AgentRunStatus {
+  const now = Date.now();
+  return { label, detail, startedAt: now, updatedAt: now };
+}
+
+function updateRunStatus(
+  setRunStatus: Dispatch<SetStateAction<AgentRunStatus | null>>,
+  label: string,
+  detail?: string
+) {
+  const now = Date.now();
+  setRunStatus((prev) => ({
+    label,
+    detail,
+    startedAt: prev?.startedAt ?? now,
+    updatedAt: now,
+  }));
+}
+
+function toolUseNames(content: unknown) {
+  if (!Array.isArray(content)) return [];
+  return content
+    .map((block) => {
+      const obj = asRecord(block);
+      return obj.type === "tool_use" ? String(obj.name ?? "tool") : "";
+    })
+    .filter(Boolean);
+}
+
+function hasToolResult(content: unknown) {
+  return Array.isArray(content) && content.some((block) => asRecord(block).type === "tool_result");
+}
+
+function hasTextContent(content: unknown) {
+  if (typeof content === "string") return content.trim().length > 0;
+  return Array.isArray(content) && content.some((block) => {
+    const obj = asRecord(block);
+    return obj.type === "text" && typeof obj.text === "string" && obj.text.trim().length > 0;
+  });
 }
 
 function summarizeResult(item: Record<string, unknown>) {
@@ -619,6 +725,36 @@ function sanitizeSessionPaths(value: string) {
 function truncate(value: string) {
   const sanitized = sanitizeSessionPaths(value);
   return sanitized.length > 1600 ? `${sanitized.slice(0, 1600)}\n...` : sanitized;
+}
+
+function AgentRunStatusView({
+  status,
+  elapsedSeconds,
+}: {
+  status: AgentRunStatus | null;
+  elapsedSeconds: number;
+}) {
+  const label = status?.label ?? "Agent is working";
+  const detail = status?.detail ?? (elapsedSeconds >= 10 ? "Waiting for first Claude Code event" : undefined);
+
+  return (
+    <div className="rounded-md border border-border bg-cream px-2.5 py-2 text-xs text-text-secondary">
+      <div className="flex items-center gap-2">
+        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className="font-mono tabular-nums text-[11px] text-text-secondary/70">
+          {formatElapsed(elapsedSeconds)}
+        </span>
+      </div>
+      {detail && <div className="mt-1 pl-5 text-[11px] text-text-secondary/80">{detail}</div>}
+    </div>
+  );
+}
+
+function formatElapsed(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = String(seconds % 60).padStart(2, "0");
+  return `${minutes}:${remainingSeconds}`;
 }
 
 function AgentEntryView({ entry }: { entry: AgentEntry }) {
