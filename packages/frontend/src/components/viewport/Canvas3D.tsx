@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { OrbitControls, Grid, Environment } from "@react-three/drei";
+import { OrbitControls, Grid } from "@react-three/drei";
 import { ModelViewer } from "./ModelViewer";
 import { useViewportStore } from "@/stores/viewportStore";
 import * as THREE from "three";
@@ -85,9 +85,9 @@ export function Canvas3D() {
       className="bg-cream"
       gl={{ preserveDrawingBuffer: true }}
     >
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[10, 10, 5]} intensity={0.8} castShadow />
-      <directionalLight position={[-5, 5, -5]} intensity={0.3} />
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[10, 10, 5]} intensity={1.1} castShadow />
+      <directionalLight position={[-5, 5, -5]} intensity={0.5} />
 
       <ModelViewer />
 
@@ -105,8 +105,6 @@ export function Canvas3D() {
       />
 
       <SceneActions />
-
-      <Environment preset="studio" environmentIntensity={0.3} />
     </Canvas>
   );
 }

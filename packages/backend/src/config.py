@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     max_execution_time: int = 30
     max_memory_mb: int = 512
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = {
+        "env_file": str(Path(__file__).resolve().parents[3] / ".env"),
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

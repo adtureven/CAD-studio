@@ -22,8 +22,8 @@ docker compose -f docker-compose.dev.yml up -d --build backend
 
 echo "Waiting for backend..."
 for i in $(seq 1 30); do
-    if curl -s http://localhost:8000/api/health > /dev/null 2>&1; then
-        echo "Backend ready at http://localhost:8000"
+    if curl -s http://localhost:8002/api/health > /dev/null 2>&1; then
+        echo "Backend ready at http://localhost:8002"
         break
     fi
     if [ "$i" -eq 30 ]; then
@@ -41,7 +41,7 @@ npm run dev &
 FRONTEND_PID=$!
 
 echo ""
-echo "Backend:  http://localhost:8000"
+echo "Backend:  http://localhost:8002"
 echo "Frontend: http://localhost:5173"
 echo ""
 echo "Press Ctrl+C to stop."
