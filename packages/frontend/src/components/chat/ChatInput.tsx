@@ -82,7 +82,7 @@ export function ChatInput({ onSendMessage, isStreaming }: ChatInputProps) {
         <button
           onClick={() => fileInputRef.current?.click()}
           className="p-1.5 rounded-md hover:bg-cream-dark text-text-secondary transition-colors"
-          title="Upload image"
+          title="上传图片"
         >
           <ImagePlus className="w-4 h-4" />
         </button>
@@ -100,7 +100,7 @@ export function ChatInput({ onSendMessage, isStreaming }: ChatInputProps) {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Describe a 3D model..."
+          placeholder="描述一个 3D 模型..."
           rows={1}
           className="flex-1 resize-none bg-transparent text-sm text-text-primary placeholder:text-text-secondary/60 outline-none overflow-y-auto"
           style={{ minHeight: "24px", maxHeight: "128px" }}

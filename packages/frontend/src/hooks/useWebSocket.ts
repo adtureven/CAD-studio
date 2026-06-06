@@ -133,7 +133,7 @@ function handleMessage(event: StreamEvent) {
         event.payload.parameters as ParameterDef[]
       );
       const code = parameterStore.currentCode;
-      const convTitle = chatStore.getActiveConversation()?.title || "Model";
+      const convTitle = chatStore.getActiveConversation()?.title || "模型";
       useLibraryStore.getState().addModel({
         name: convTitle.slice(0, 30),
         code,
@@ -156,7 +156,7 @@ function handleMessage(event: StreamEvent) {
         : fixError;
       chatStore.finalizeMessage();
       chatStore.appendResponseChunk(
-        `**Auto-fix (${attempt}/${maxAttempts})**\n\nError: \`${shortErr}\`\n\nRetrying...\n\n`
+        `**自动修复（${attempt}/${maxAttempts}）**\n\n错误：\`${shortErr}\`\n\n正在重试...\n\n`
       );
       viewportStore.setLoading(true);
       break;
@@ -166,7 +166,7 @@ function handleMessage(event: StreamEvent) {
       const failError = event.payload.error as string;
       chatStore.finalizeMessage();
       chatStore.appendResponseChunk(
-        `**All fix attempts failed**\n\n\`\`\`\n${failError}\n\`\`\`\n\nPlease try describing the model differently or simplify the geometry.`
+        `**多次修复均失败**\n\n\`\`\`\n${failError}\n\`\`\`\n\n请尝试换一种描述方式，或简化模型几何。`
       );
       viewportStore.setLoading(false);
       break;

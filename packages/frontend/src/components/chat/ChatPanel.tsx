@@ -4,6 +4,7 @@ import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { AgentPanel } from "./AgentPanel";
+import { ModelSelector } from "./ModelSelector";
 import { Bot, MessageSquare, X, Plus } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
 
@@ -33,12 +34,12 @@ export function ChatPanel({ onSendMessage }: ChatPanelProps) {
         <div className="flex items-center gap-2">
           <MessageSquare className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium text-text-primary">
-            AI Assistant
+            AI 助手
           </span>
           <button
             onClick={() => useChatStore.getState().createConversation()}
             className="p-1 rounded hover:bg-cream-dark text-text-secondary"
-            title="New conversation"
+            title="新建对话"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -51,7 +52,7 @@ export function ChatPanel({ onSendMessage }: ChatPanelProps) {
                   : "text-text-secondary hover:bg-cream-dark"
               }`}
             >
-              CAD
+              Chat
             </button>
             <button
               onClick={() => setMode("agent")}
@@ -67,6 +68,7 @@ export function ChatPanel({ onSendMessage }: ChatPanelProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ModelSelector />
           <button
             onClick={toggleChatPanel}
             className="p-1 rounded hover:bg-cream-dark text-text-secondary"
@@ -89,11 +91,11 @@ export function ChatPanel({ onSendMessage }: ChatPanelProps) {
               <MessageSquare className="w-6 h-6 text-primary" />
             </div>
             <h3 className="text-sm font-medium text-text-primary mb-1">
-              Describe your 3D model
+              描述你的 3D 模型
             </h3>
             <p className="text-xs text-text-secondary leading-relaxed">
-              Tell me what you want to create, or upload an image for reference.
-              I'll generate parametric CadQuery code and render the 3D model.
+              告诉我你想创建什么，或上传一张图片作为参考。
+              我会生成参数化的 CadQuery 代码并渲染出 3D 模型。
             </p>
           </div>
         )}

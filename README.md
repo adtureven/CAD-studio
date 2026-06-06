@@ -7,8 +7,8 @@ AI-powered parametric 3D modeling system. Describe a shape in natural language, 
 ## Features
 
 - **AI Chat** - Describe a 3D model in text; AI generates parametric CadQuery code and renders it.
-- **Code Agent** - Agent mode runs Claude Code against an isolated per-conversation `cadquery.py` file, using the Mimo Anthropic-compatible endpoint.
-- **CAD Execution Feedback** - Agent-generated CadQuery is executed by the backend; failures are fed back to the same Claude Code session for automatic repair.
+- **Code Agent** - Agent mode runs an in-process agent loop (built on the `anthropic` SDK) against an isolated per-conversation `cadquery.py` file, using the Mimo Anthropic-compatible endpoint.
+- **CAD Execution Feedback** - Agent-generated CadQuery is executed by the backend; failures are fed back into the same agent session for automatic repair.
 - **STEP Rendering** - Industrial-grade B-Rep geometry via OpenCascade, parsed client-side with `occt-import-js` (WASM).
 - **Face Hover Highlight** - Hover model faces to see boundary edges and face info.
 - **Parameter Editing** - Sliders and inputs tweak model dimensions in real time.
@@ -31,13 +31,13 @@ User prompt -> AI chat provider -> CadQuery Python code
 Agent flow:
 
 ```text
-User prompt -> /api/agent/ws -> Claude Code CLI + Mimo endpoint
+User prompt -> /api/agent/ws -> in-process agent loop (anthropic SDK) + Mimo endpoint
     -> isolated generated/agent_sessions/<conversation>/cadquery.py
     -> Backend executes cadquery.py -> success renders STEP
-    -> failure is sent back to Claude Code for repair, then re-executed
+    -> failure is sent back into the agent loop for repair, then re-executed
 ```
 
-The Agent directory is intentionally separate from this repository's source tree. Claude Code is launched with that session directory as its working directory, so its primary working file is `cadquery.py`.
+The Agent directory is intentionally separate from this repository's source tree. The agent only edits `cadquery.py` in its session directory through the `read_cad`/`write_cad` tools.
 
 ## Tech Stack
 
@@ -49,7 +49,7 @@ The Agent directory is intentionally separate from this repository's source tree
 | Backend | Python 3.12+, FastAPI, WebSocket |
 | CAD Kernel | CadQuery 2.7 / OpenCascade |
 | AI Chat | OpenAI-compatible gateway |
-| Code Agent | Claude Code CLI with Mimo Anthropic-compatible API |
+| Code Agent | In-process agent loop (`anthropic` SDK) with Mimo Anthropic-compatible API |
 
 ## Quick Start
 
@@ -58,16 +58,10 @@ The Agent directory is intentionally separate from this repository's source tree
 - **Node.js** 20+
 - **Python** 3.12+ (3.13 is also OK if CadQuery/OCP installs cleanly)
 - **CadQuery** with OpenCascade/OCP
-- An **OpenAI-compatible API key** for normal chat, or a Mimo-compatible key for Agent mode
-- Optional but required for Agent mode: installed **Claude Code CLI** available as `claude`
+- An **OpenAI-compatible API key** for normal chat, or a Mimo/Anthropic-compatible key for Agent mode
 
-Check Claude Code:
-
-```bash
-claude --version
-```
-
-If the binary is not on `PATH`, set `CLAUDE_CODE_BIN` before starting the backend.
+Agent mode runs entirely in-process via the `anthropic` Python SDK (already a backend
+dependency) against the Mimo Anthropic-compatible gateway. No local Claude Code CLI is required.
 
 ### 1. Clone
 
@@ -86,13 +80,13 @@ conda create -n cad python=3.12 -y
 conda activate cad
 conda install -c cadquery cadquery=2.7 -y
 pip install fastapi "uvicorn[standard]" websockets pydantic pydantic-settings \
-    httpx python-multipart aiosqlite sqlalchemy
+    httpx python-multipart aiosqlite sqlalchemy anthropic
 
 # Option B: venv + pip
 python3 -m venv .venv
 source .venv/bin/activate
 pip install fastapi "uvicorn[standard]" websockets pydantic pydantic-settings \
-    httpx python-multipart aiosqlite sqlalchemy cadquery
+    httpx python-multipart aiosqlite sqlalchemy anthropic cadquery
 ```
 
 ### 3. Configure API
@@ -111,11 +105,12 @@ GATEWAY_API_KEY=sk-your-key-here
 GATEWAY_MODELS=gpt-4o
 ```
 
-For Agent mode with Claude Code + Mimo, the backend sets:
+For Agent mode, the backend talks to the Mimo Anthropic-compatible gateway in-process.
+The base URL and default model are set in code (`packages/backend/src/api/agent.py`):
 
 ```text
-ANTHROPIC_BASE_URL=https://token-plan-sgp.xiaomimimo.com/anthropic
-ANTHROPIC_MODEL=mimo-v2.5-pro
+base_url = https://token-plan-sgp.xiaomimimo.com/anthropic
+default model = mimo-v2.5-pro
 ```
 
 Provide the key using either variable:
@@ -142,7 +137,8 @@ Open two terminals:
 ```bash
 # Terminal 1: Backend, port 8000
 cd packages/backend
-uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload
+# --reload-dir src 很重要：仅监视源码目录，避免 agent 写 generated/ 产物时误触发重启而断开 WebSocket
+uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir src
 ```
 
 ```bash
@@ -172,8 +168,8 @@ docker compose up
 | Action | How |
 |--------|-----|
 | Generate model with chat | Use the `CAD` tab and type a model description |
-| Use Claude Code agent | Switch to `Agent` and describe the CAD change |
-| Continue an Agent session | Keep chatting in the same Agent conversation; it resumes the same Claude Code session and `cadquery.py` |
+| Use the code agent | Switch to `Agent` and describe the CAD change |
+| Continue an Agent session | Keep chatting in the same Agent conversation; it resumes the same agent history and `cadquery.py` |
 | Adjust parameters | Drag sliders in the right panel |
 | Edit code manually | Switch to Code tab, modify, press `Ctrl+Enter` |
 | Change view angle | Click direction buttons or drag to orbit |
@@ -185,18 +181,18 @@ docker compose up
 ## Agent Mode Notes
 
 - Each conversation gets a directory under `packages/backend/generated/agent_sessions/`.
-- The session file is `cadquery.py`; the backend renders from that file after Claude Code returns.
-- Claude Code configuration/session data is isolated under `packages/backend/generated/claude_config/` via `CLAUDE_CONFIG_DIR`.
-- The backend launches Claude Code with `--bare`, `--tools default`, and `--permission-mode bypassPermissions`.
-- Because tools are not restricted, this is a trusted local development workflow, not a hard security sandbox.
-- If CadQuery execution fails, the backend sends the error back to Claude Code for up to 2 repair turns.
+- The session file is `cadquery.py`; the backend renders from that file after the agent loop returns.
+- Agent mode is an in-process harness built on the `anthropic` SDK. It exposes two tools to the model — `read_cad` and `write_cad` — both locked to the session's `cadquery.py`.
+- Multi-turn memory is kept per conversation in the backend process (replacing the old CLI `--resume` mechanism).
+- Because the tools only touch `cadquery.py`, the model cannot reach other files, the shell, or the network.
+- If CadQuery execution fails, the backend sends the error back into the agent loop for up to 2 repair turns.
 
 ## API Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | WS | `/api/chat/ws` | Streaming AI chat + CAD execution |
-| WS | `/api/agent/ws` | Claude Code Agent session over WebSocket |
+| WS | `/api/agent/ws` | In-process CAD agent session over WebSocket |
 | POST | `/api/cad/execute` | Execute CadQuery code directly |
 | POST | `/api/cad/update-params` | Re-execute with modified parameters |
 | GET | `/api/chat/models` | List available AI models |
@@ -230,7 +226,7 @@ Use `http://127.0.0.1:5173/` in the browser and hard-refresh if the frontend bun
 
 ### Agent stays on `Agent is working`
 
-If tool calls are appearing, Claude Code/Mimo is still working. Agent turns can take longer than normal chat because Claude Code may inspect, edit, execute, receive CAD errors, and repair. If it runs for several minutes with no new tool events, check the backend terminal logs.
+If tool calls are appearing, the agent loop is still working. Agent turns can take longer than normal chat because the agent may inspect, edit, execute, receive CAD errors, and repair. If it runs for several minutes with no new tool events, check the backend terminal logs.
 
 ### Stop the servers
 
@@ -268,7 +264,7 @@ cad/
 │   │   │   └── types/            TypeScript interfaces
 │   │   └── public/               occt-import-js WASM files
 │   └── backend/               # Python FastAPI
-│       ├── generated/            STEP outputs, Agent sessions, Claude config
+│       ├── generated/            STEP outputs, Agent sessions
 │       └── src/
 │           ├── api/              chat, agent, cad, settings, health
 │           ├── services/

@@ -53,24 +53,24 @@ async def chat_websocket(websocket: WebSocket):
 
 MAX_FIX_ATTEMPTS = 2
 
-FIX_PROMPT = """The CadQuery code you generated failed to execute with this error:
+FIX_PROMPT = """你之前生成的 CadQuery 代码执行失败，错误如下：
 
 ```
 {error}
 ```
 
-Original code:
+原始代码：
 ```python
 {code}
 ```
 
-Please fix the code. Common issues:
-- Duplicate/overlapping points in polyline (causes zero-length edges)
-- Invalid fillet/chamfer radius (too large for geometry)
-- Operations on empty selections
-- Use simpler geometry approaches when possible (e.g. circle + extrude for gear approximation instead of complex polyline profiles)
+请修复代码。常见问题：
+- 折线中存在重复/重叠的点（导致零长度边）
+- 圆角/倒角半径不合法（相对几何过大）
+- 对空选择集执行操作
+- 尽量使用更简单的几何方式（例如齿轮用 圆+拉伸 近似，而不是复杂的折线齿廓）
 
-Return ONLY the corrected code in a ```python block."""
+只返回修正后的代码，放在一个 ```python 代码块里。"""
 
 
 async def handle_chat_request(websocket: WebSocket, payload: dict):

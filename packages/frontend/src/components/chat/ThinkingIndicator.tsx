@@ -31,7 +31,7 @@ export function ThinkingIndicator({ content }: ThinkingIndicatorProps) {
           ) : (
             <ChevronRight className="w-3 h-3" />
           )}
-          <span className="italic">Thinking...</span>
+          <span className="italic">思考中...</span>
         </button>
 
         {expanded && (

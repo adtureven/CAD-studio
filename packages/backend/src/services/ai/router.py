@@ -10,6 +10,11 @@ class AIModelRouter:
         self.providers: list[AbstractAIProvider] = []
         self._init_providers()
 
+    def reload(self):
+        """Rebuild providers after settings change so new models take effect."""
+        self.providers = []
+        self._init_providers()
+
     def _init_providers(self):
         if settings.gateway_url and settings.gateway_api_key:
             models = [m.strip() for m in settings.gateway_models.split(",") if m.strip()]

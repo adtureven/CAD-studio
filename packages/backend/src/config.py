@@ -1,6 +1,8 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+
 
 class Settings(BaseSettings):
     anthropic_api_key: str = ""
@@ -8,6 +10,9 @@ class Settings(BaseSettings):
     gateway_url: str = ""
     gateway_api_key: str = ""
     gateway_models: str = ""
+
+    agent_base_url: str = "https://token-plan-sgp.xiaomimimo.com/anthropic"
+    default_model: str = "mimo-v2.5-pro"
 
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
@@ -18,7 +23,7 @@ class Settings(BaseSettings):
     max_memory_mb: int = 512
 
     model_config = {
-        "env_file": str(Path(__file__).resolve().parents[3] / ".env"),
+        "env_file": str(ENV_FILE),
         "extra": "ignore",
     }
 
