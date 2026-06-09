@@ -14,7 +14,8 @@ CAD_FILE_NAME = "cadquery.py"
 CAD_SYSTEM_PROMPT_PATH = Path(__file__).parent.parent / "services" / "ai" / "prompts" / "system_cad_agent.md"
 MAX_CAD_REPAIR_TURNS = 2
 MAX_TOOL_ITERATIONS = 24
-MAX_TOKENS = 8000
+MAX_TOKENS = 32000
+THINKING_BUDGET_TOKENS = 1024
 # Keep multi-turn memory bounded so token usage does not grow without limit.
 MAX_HISTORY_MESSAGES = 40
 
@@ -250,7 +251,18 @@ async def _run_agent_loop(
             history_content: list[dict] = []
             tool_blocks = []
             for block in final_message.content:
-                if block.type == "text":
+                if block.type == "thinking":
+                    history_content.append({
+                        "type": "thinking",
+                        "thinking": block.thinking,
+                        "signature": block.signature,
+                    })
+                elif block.type == "redacted_thinking":
+                    history_content.append({
+                        "type": "redacted_thinking",
+                        "data": block.data,
+                    })
+                elif block.type == "text":
                     history_content.append({"type": "text", "text": block.text})
                 elif block.type == "tool_use":
                     block_input = block.input if isinstance(block.input, dict) else {}
@@ -263,6 +275,16 @@ async def _run_agent_loop(
                     tool_blocks.append((block.id, block.name, block_input))
 
             history.append({"role": "assistant", "content": history_content})
+
+            if final_message.stop_reason == "max_tokens":
+                await websocket.send_json({
+                    "type": "agent_error",
+                    "payload": {
+                        "message": "模型输出超过长度上限被截断，未能完成本轮工具调用。请简化需求或重试。",
+                        "conversation_id": conversation_id,
+                    },
+                })
+                return False
 
             if final_message.stop_reason != "tool_use":
                 return True
@@ -320,7 +342,7 @@ async def _stream_one_response(
     async with client.messages.stream(
         model=model,
         max_tokens=MAX_TOKENS,
-        temperature=0.0,
+        thinking={"type": "enabled", "budget_tokens": THINKING_BUDGET_TOKENS},
         system=system_prompt,
         tools=TOOLS,
         messages=history,
@@ -332,6 +354,13 @@ async def _stream_one_response(
                     await websocket.send_json({
                         "type": "agent_text_delta",
                         "payload": {"text": text, "conversation_id": conversation_id},
+                    })
+            elif event.type == "content_block_delta" and event.delta.type == "thinking_delta":
+                thinking = event.delta.thinking
+                if thinking:
+                    await websocket.send_json({
+                        "type": "agent_thinking_delta",
+                        "payload": {"text": thinking, "conversation_id": conversation_id},
                     })
             elif event.type == "content_block_stop":
                 await websocket.send_json({

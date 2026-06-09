@@ -19,6 +19,7 @@ class AIRequest:
     max_tokens: int = 16000
     temperature: float = 0.0
     images: list[bytes] | None = None
+    reasoning_effort: str = "low"
 
 
 class AbstractAIProvider(ABC):

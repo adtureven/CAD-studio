@@ -38,7 +38,7 @@ class ClaudeProvider(AbstractAIProvider):
         }
 
         if request.enable_thinking:
-            kwargs["thinking"] = {"type": "enabled", "budget_tokens": 8000}
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": 2000}
 
         async with self.client.messages.stream(**kwargs) as stream:
             async for event in stream:

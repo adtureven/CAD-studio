@@ -3,6 +3,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import {
   AlertTriangle,
   Bot,
+  Brain,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -24,7 +25,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 
 type AgentEntry = {
   id: string;
-  role: "user" | "agent" | "tool" | "system" | "error";
+  role: "user" | "agent" | "tool" | "system" | "error" | "thinking";
   title: string;
   content?: string;
   status?: "running" | "success" | "error";
@@ -47,6 +48,7 @@ type HandlerCtx = {
   setIsRunning: Dispatch<SetStateAction<boolean>>;
   setRunStatus: Dispatch<SetStateAction<AgentRunStatus | null>>;
   streamingIdRef: RefObject<string | null>;
+  thinkingIdRef: RefObject<string | null>;
 };
 
 const TOOL_LABELS: Record<string, string> = {
@@ -70,6 +72,7 @@ export function AgentPanel() {
   const wsUrlRef = useRef(getBackendWsUrl("/api/agent/ws"));
   const lastActiveConversationIdRef = useRef<string | null>(activeConversationId);
   const streamingIdRef = useRef<string | null>(null);
+  const thinkingIdRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export function AgentPanel() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          handleAgentEvent(data, { setEntries, setIsRunning, setRunStatus, streamingIdRef });
+          handleAgentEvent(data, { setEntries, setIsRunning, setRunStatus, streamingIdRef, thinkingIdRef });
         } catch {
           setEntries((prev) => [
             ...prev,
@@ -131,6 +134,7 @@ export function AgentPanel() {
         setIsRunning(false);
         setRunStatus(null);
         streamingIdRef.current = null;
+        thinkingIdRef.current = null;
         reconnectTimerRef.current = window.setTimeout(connect, 1200);
       };
     };
@@ -151,6 +155,7 @@ export function AgentPanel() {
     setIsRunning(false);
     setRunStatus(null);
     streamingIdRef.current = null;
+    thinkingIdRef.current = null;
   }, [activeConversationId]);
 
   useEffect(() => {
@@ -175,6 +180,7 @@ export function AgentPanel() {
     }
 
     streamingIdRef.current = null;
+    thinkingIdRef.current = null;
     setEntries((prev) => [
       ...prev,
       {
@@ -290,7 +296,7 @@ function handleAgentEvent(
   data: { type: string; payload?: Record<string, unknown> },
   ctx: HandlerCtx
 ) {
-  const { setEntries, setIsRunning, setRunStatus, streamingIdRef } = ctx;
+  const { setEntries, setIsRunning, setRunStatus, streamingIdRef, thinkingIdRef } = ctx;
   const payload = data.payload ?? {};
 
   switch (data.type) {
@@ -306,9 +312,23 @@ function handleAgentEvent(
       updateRunStatus(setRunStatus, String(payload.label ?? "处理中"));
       return;
 
+    case "agent_thinking_delta": {
+      const text = String(payload.text ?? "");
+      if (!text) return;
+      finalizeThinkingIfMissing(thinkingIdRef, setEntries);
+      const thinkingId = thinkingIdRef.current;
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === thinkingId ? { ...e, content: (e.content ?? "") + text } : e
+        )
+      );
+      return;
+    }
+
     case "agent_text_delta": {
       const text = String(payload.text ?? "");
       if (!text) return;
+      finalizeThinking(thinkingIdRef, setEntries);
       finalizeStreamingIfMissing(streamingIdRef, setEntries);
       const streamingId = streamingIdRef.current;
       setEntries((prev) =>
@@ -336,6 +356,7 @@ function handleAgentEvent(
 
     case "agent_tool_use": {
       streamingIdRef.current = null;
+      finalizeThinking(thinkingIdRef, setEntries);
       const toolId = String(payload.id ?? crypto.randomUUID());
       const name = String(payload.name ?? "tool");
       const input = asRecord(payload.input);
@@ -436,6 +457,7 @@ function handleAgentEvent(
 
     case "agent_done": {
       streamingIdRef.current = null;
+      finalizeThinking(thinkingIdRef, setEntries);
       setIsRunning(false);
       setRunStatus(null);
       useParameterStore.getState().setExecuting(false);
@@ -457,6 +479,7 @@ function handleAgentEvent(
 
     case "agent_error": {
       streamingIdRef.current = null;
+      finalizeThinking(thinkingIdRef, setEntries);
       const message = String(payload.message ?? payload.content ?? "");
       setIsRunning(false);
       setRunStatus(null);
@@ -491,6 +514,36 @@ function finalizeStreamingIfMissing(
     ...prev,
     { id, role: "agent", title: "Agent", content: "", streaming: true },
   ]);
+}
+
+function finalizeThinkingIfMissing(
+  thinkingIdRef: RefObject<string | null>,
+  setEntries: Dispatch<SetStateAction<AgentEntry[]>>
+) {
+  if (thinkingIdRef.current) return;
+  const id = crypto.randomUUID();
+  thinkingIdRef.current = id;
+  setEntries((prev) => [
+    ...prev,
+    { id, role: "thinking", title: "思考过程", content: "", streaming: true },
+  ]);
+}
+
+function finalizeThinking(
+  thinkingIdRef: RefObject<string | null>,
+  setEntries: Dispatch<SetStateAction<AgentEntry[]>>
+) {
+  const thinkingId = thinkingIdRef.current;
+  thinkingIdRef.current = null;
+  if (!thinkingId) return;
+  setEntries((prev) => {
+    const target = prev.find((e) => e.id === thinkingId);
+    if (!target) return prev;
+    if (!target.content || !target.content.trim()) {
+      return prev.filter((e) => e.id !== thinkingId);
+    }
+    return prev.map((e) => (e.id === thinkingId ? { ...e, streaming: false } : e));
+  });
 }
 
 function makeRunStatus(label: string, detail?: string): AgentRunStatus {
@@ -590,6 +643,10 @@ function AgentEntryView({ entry }: { entry: AgentEntry }) {
     return <ToolEntryView entry={entry} />;
   }
 
+  if (entry.role === "thinking") {
+    return <ThinkingEntryView entry={entry} />;
+  }
+
   const Icon =
     entry.role === "error"
       ? AlertTriangle
@@ -685,6 +742,35 @@ function ToolEntryView({ entry }: { entry: AgentEntry }) {
               {entry.toolOutput}
             </pre>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ThinkingEntryView({ entry }: { entry: AgentEntry }) {
+  const [open, setOpen] = useState(true);
+  const content = entry.content ?? "";
+
+  return (
+    <div className="flex gap-2.5 py-1.5">
+      <div className="mt-0.5 w-6 h-6 rounded-md border border-border bg-cream flex items-center justify-center flex-shrink-0 text-text-secondary">
+        <Brain className="w-3.5 h-3.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-text-secondary cursor-pointer hover:text-text-primary"
+        >
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          <span className="truncate">{entry.title}</span>
+          {entry.streaming && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
+        </button>
+        {open && content && (
+          <pre className="mt-1 rounded-md border border-border bg-cream px-2.5 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-sans text-text-secondary/90 italic">
+            {content}
+          </pre>
         )}
       </div>
     </div>

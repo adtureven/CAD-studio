@@ -36,6 +36,7 @@ class GatewayProvider(AbstractAIProvider):
             max_tokens=request.max_tokens,
             temperature=request.temperature,
             stream=True,
+            extra_body={"reasoning_effort": request.reasoning_effort},
         )
 
         async for chunk in stream:
