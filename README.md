@@ -180,12 +180,37 @@ docker compose up
 
 ## Agent Mode Notes
 
+Agent mode is powered by [opencode](https://github.com/anomalyco/opencode), an
+open-source coding agent, running as a local headless server. The backend proxies
+opencode's event stream into the existing `agent_*` WebSocket protocol, so the UI
+is unchanged.
+
+### Running opencode
+
+1. Install: `npm install -g opencode-ai@latest` (verify with `opencode --version`).
+2. Start the server (host side): `bash scripts/opencode.sh` — it runs
+   `opencode serve` rooted at `packages/backend/generated/agent_sessions`.
+3. The backend writes `opencode.json` (provider + permissions) to that root on
+   startup, generated from `.env`. The provider points at `AGENT_BASE_URL` with
+   your API key; permissions allow editing only `**/cadquery.py` and deny
+   `bash`/`webfetch`, preserving the sandbox.
+
+Config (`.env`):
+
+- `OPENCODE_ENABLED` — set `false` to fall back to the legacy in-process loop.
+- `OPENCODE_BASE_URL` — backend in Docker reaches the host via
+  `http://host.docker.internal:4096`.
+- `OPENCODE_HOST_ROOT` — host-side absolute path of `agent_sessions`, used to
+  translate container paths to host paths (the directory is bind-mounted).
+
+### How it works
+
 - Each conversation gets a directory under `packages/backend/generated/agent_sessions/`.
-- The session file is `cadquery.py`; the backend renders from that file after the agent loop returns.
-- Agent mode is an in-process harness built on the `anthropic` SDK. It exposes two tools to the model — `read_cad` and `write_cad` — both locked to the session's `cadquery.py`.
-- Multi-turn memory is kept per conversation in the backend process (replacing the old CLI `--resume` mechanism).
-- Because the tools only touch `cadquery.py`, the model cannot reach other files, the shell, or the network.
-- If CadQuery execution fails, the backend sends the error back into the agent loop for up to 2 repair turns.
+- The session file is `cadquery.py`; opencode edits only that file, and the
+  backend renders from it after each turn.
+- Multi-turn memory is owned by the opencode session (mapped per conversation).
+- If CadQuery execution fails, the backend sends the error back to the same
+  opencode session for up to 2 repair turns.
 
 ## API Endpoints
 

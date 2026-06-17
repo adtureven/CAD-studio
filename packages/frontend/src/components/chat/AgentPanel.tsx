@@ -73,7 +73,8 @@ export function AgentPanel() {
   const lastActiveConversationIdRef = useRef<string | null>(activeConversationId);
   const streamingIdRef = useRef<string | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
   useEffect(() => {
     let disposed = false;
@@ -156,11 +157,23 @@ export function AgentPanel() {
     setRunStatus(null);
     streamingIdRef.current = null;
     thinkingIdRef.current = null;
+    stickToBottomRef.current = true;
   }, [activeConversationId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [entries]);
+    if (!stickToBottomRef.current) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [entries, isRunning, runStatus]);
+
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    stickToBottomRef.current = distanceFromBottom <= 24;
+  }, []);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -181,6 +194,7 @@ export function AgentPanel() {
 
     streamingIdRef.current = null;
     thinkingIdRef.current = null;
+    stickToBottomRef.current = true;
     setEntries((prev) => [
       ...prev,
       {
@@ -239,7 +253,11 @@ export function AgentPanel() {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-surface">
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-surface"
+      >
         {entries.length === 0 && (
           <div className="h-full flex flex-col justify-center text-center px-5 text-text-secondary">
             <div className="mx-auto w-10 h-10 rounded-md bg-cream border border-border flex items-center justify-center mb-3">
@@ -257,7 +275,6 @@ export function AgentPanel() {
         {isRunning && (
           <AgentRunStatusView status={runStatus} elapsedSeconds={elapsedSeconds} />
         )}
-        <div ref={bottomRef} />
       </div>
 
       <div className="p-3 border-t border-border bg-surface">

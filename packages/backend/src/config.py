@@ -14,6 +14,18 @@ class Settings(BaseSettings):
     agent_base_url: str = "https://token-plan-sgp.xiaomimimo.com/anthropic"
     default_model: str = "mimo-v2.5-pro"
 
+    # Agent mode powered by opencode. When disabled, fall back to the legacy
+    # in-process anthropic loop.
+    opencode_enabled: bool = True
+    opencode_base_url: str = "http://127.0.0.1:4096"
+    opencode_provider_id: str = "cadgw"
+    # When the backend runs in Docker but opencode runs on the host, the
+    # session directory paths differ. Set this to the host-side absolute path
+    # of generated/agent_sessions so the backend can hand opencode a path it
+    # can actually resolve. Empty = no translation (backend and opencode share
+    # the same filesystem).
+    opencode_host_root: str = ""
+
     backend_host: str = "0.0.0.0"
     backend_port: int = 8000
     database_url: str = "sqlite+aiosqlite:///./cad_studio.db"

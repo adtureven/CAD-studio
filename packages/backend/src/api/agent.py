@@ -7,6 +7,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..config import settings
 from ..services.cad.executor import execute_cadquery
+from ..services.opencode import client as opencode_client
+from ..services.opencode import provision as opencode_provision
 
 router = APIRouter()
 
@@ -19,8 +21,11 @@ THINKING_BUDGET_TOKENS = 1024
 # Keep multi-turn memory bounded so token usage does not grow without limit.
 MAX_HISTORY_MESSAGES = 40
 
-# Per-conversation message history powering multi-turn memory.
+# Per-conversation message history powering multi-turn memory (legacy loop).
 _histories: dict[str, list[dict]] = {}
+
+# Maps a conversation id to its opencode session id (opencode owns the memory).
+_opencode_sessions: dict[str, str] = {}
 
 TOOLS = [
     {
@@ -120,14 +125,23 @@ def _agent_prompt(user_message: str) -> str:
 async def agent_websocket(websocket: WebSocket):
     await websocket.accept()
 
+    active_opencode_session: dict[str, str | None] = {"id": None}
+
     try:
         while True:
             data = await websocket.receive_json()
             if data.get("type") != "agent_request":
                 continue
-            await _run_agent_turn(websocket, data.get("payload", {}))
+            if settings.opencode_enabled:
+                await _run_agent_turn_opencode(
+                    websocket, data.get("payload", {}), active_opencode_session
+                )
+            else:
+                await _run_agent_turn(websocket, data.get("payload", {}))
     except WebSocketDisconnect:
-        pass
+        session_id = active_opencode_session.get("id")
+        if session_id:
+            await opencode_client.abort(session_id)
 
 
 async def _run_agent_turn(websocket: WebSocket, payload: dict):
@@ -200,6 +214,342 @@ async def _run_agent_turn(websocket: WebSocket, payload: dict):
         "type": "agent_done",
         "payload": {"return_code": 0, "conversation_id": conversation_id},
     })
+
+
+# ---------------------------------------------------------------------------
+# opencode-backed agent turn
+# ---------------------------------------------------------------------------
+
+# Map opencode tool names onto the labels the frontend already knows.
+_OPENCODE_TOOL_LABELS = {
+    "write": "write_cad",
+    "edit": "write_cad",
+    "read": "read_cad",
+    "patch": "write_cad",
+}
+
+
+def _map_tool_name(name: str) -> str:
+    return _OPENCODE_TOOL_LABELS.get(name, name)
+
+
+async def _run_agent_turn_opencode(
+    websocket: WebSocket,
+    payload: dict,
+    active_session: dict,
+):
+    message = (payload.get("message") or "").strip()
+    if not message:
+        return
+
+    conversation_id = payload.get("conversation_id") or "default"
+    model = payload.get("model") or settings.default_model
+
+    if not (settings.anthropic_api_key or settings.gateway_api_key):
+        await websocket.send_json({
+            "type": "agent_error",
+            "payload": {"message": "缺少 API key", "conversation_id": conversation_id},
+        })
+        return
+
+    cad_file = opencode_provision.ensure_session_assets(conversation_id)
+    directory = opencode_provision.host_session_dir(conversation_id)
+
+    # Make sure opencode is reachable before doing anything else.
+    try:
+        await opencode_client.health()
+    except Exception:
+        await websocket.send_json({
+            "type": "agent_error",
+            "payload": {
+                "message": "无法连接 opencode 服务，请先运行 scripts/opencode.sh 启动它。",
+                "conversation_id": conversation_id,
+            },
+        })
+        return
+
+    try:
+        session_id = _opencode_sessions.get(conversation_id)
+        if not session_id:
+            session_id = await opencode_client.create_session(directory, title=conversation_id)
+            _opencode_sessions[conversation_id] = session_id
+    except Exception as exc:
+        await websocket.send_json({
+            "type": "agent_error",
+            "payload": {"message": f"创建 opencode 会话失败：{exc}", "conversation_id": conversation_id},
+        })
+        return
+
+    active_session["id"] = session_id
+
+    await websocket.send_json({
+        "type": "agent_start",
+        "payload": {"conversation_id": conversation_id, "model": model},
+    })
+
+    state = {"last_render_ok": False}
+
+    ok = await _run_opencode_prompt(
+        websocket=websocket,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        directory=directory,
+        text=message,
+    )
+
+    if not ok:
+        await _send_status(websocket, conversation_id, "error", "Agent 执行失败")
+        await websocket.send_json({
+            "type": "agent_done",
+            "payload": {"return_code": 1, "conversation_id": conversation_id},
+        })
+        active_session["id"] = None
+        return
+
+    # opencode only edits cadquery.py; the backend owns rendering + repair.
+    await _auto_render_and_repair_opencode(
+        websocket=websocket,
+        conversation_id=conversation_id,
+        session_id=session_id,
+        directory=directory,
+        cad_file=cad_file,
+        state=state,
+    )
+
+    await _send_status(websocket, conversation_id, "done", "完成")
+    await websocket.send_json({
+        "type": "agent_done",
+        "payload": {"return_code": 0, "conversation_id": conversation_id},
+    })
+    active_session["id"] = None
+
+
+async def _run_opencode_prompt(
+    *,
+    websocket: WebSocket,
+    conversation_id: str,
+    session_id: str,
+    directory: str,
+    text: str,
+) -> bool:
+    """Send one prompt and translate opencode SSE events into agent_* messages.
+
+    Returns True when the session goes idle normally, False on error.
+    """
+    in_flight = {"active": True}
+
+    async def send_heartbeat():
+        while in_flight["active"]:
+            await asyncio.sleep(8)
+            if not in_flight["active"]:
+                break
+            with contextlib.suppress(Exception):
+                await websocket.send_json({
+                    "type": "agent_heartbeat",
+                    "payload": {"conversation_id": conversation_id},
+                })
+
+    heartbeat_task = asyncio.create_task(send_heartbeat())
+
+    # Bookkeeping for the turn: which message parts have streamed text, and
+    # which tool calls have been announced to the frontend.
+    streamed_text = {"any": False}
+    tool_started: set[str] = set()
+    result = {"ok": True}
+
+    def _matches_session(props: dict, envelope: dict) -> bool:
+        # Prefer the explicit sessionID on the event properties; fall back to
+        # the envelope directory so we never leak another session's events.
+        sid = props.get("sessionID")
+        if sid is not None:
+            return sid == session_id
+        ev_dir = envelope.get("directory")
+        return ev_dir in (None, directory)
+
+    async def consume():
+        await _send_status(websocket, conversation_id, "thinking", "模型思考中")
+        async for envelope in opencode_client.events():
+            payload = envelope.get("payload") or {}
+            etype = payload.get("type")
+            props = payload.get("properties") or {}
+
+            if etype in ("server.connected", "server.heartbeat", "sync"):
+                continue
+            if not _matches_session(props, envelope):
+                continue
+
+            if etype == "message.part.delta":
+                field = props.get("field")
+                delta = props.get("delta")
+                if not delta:
+                    continue
+                if field == "text":
+                    streamed_text["any"] = True
+                    await websocket.send_json({
+                        "type": "agent_text_delta",
+                        "payload": {"text": delta, "conversation_id": conversation_id},
+                    })
+                elif field == "reasoning":
+                    await websocket.send_json({
+                        "type": "agent_thinking_delta",
+                        "payload": {"text": delta, "conversation_id": conversation_id},
+                    })
+                continue
+
+            if etype == "message.part.updated":
+                part = props.get("part") or {}
+                if part.get("type") == "tool":
+                    await _handle_opencode_tool_part(
+                        websocket, conversation_id, part, tool_started
+                    )
+                continue
+
+            if etype == "session.error":
+                err = props.get("error") or props.get("message") or "opencode 会话出错"
+                await websocket.send_json({
+                    "type": "agent_error",
+                    "payload": {"message": str(err), "conversation_id": conversation_id},
+                })
+                result["ok"] = False
+                return
+
+            if etype == "session.idle":
+                return
+
+    try:
+        consume_task = asyncio.create_task(consume())
+        # Give the SSE stream a moment to connect before prompting.
+        await asyncio.sleep(0.3)
+        try:
+            await opencode_client.prompt(session_id, text, directory)
+        except Exception as exc:
+            consume_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consume_task
+            await websocket.send_json({
+                "type": "agent_error",
+                "payload": {"message": f"发送 prompt 失败：{exc}", "conversation_id": conversation_id},
+            })
+            return False
+
+        await consume_task
+
+        # Flush any still-streaming text part.
+        if streamed_text["any"]:
+            await websocket.send_json({
+                "type": "agent_text_done",
+                "payload": {"conversation_id": conversation_id},
+            })
+        return result["ok"]
+    finally:
+        in_flight["active"] = False
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
+
+
+async def _handle_opencode_tool_part(
+    websocket: WebSocket,
+    conversation_id: str,
+    part: dict,
+    tool_started: set,
+):
+    raw_name = part.get("tool") or "tool"
+    name = _map_tool_name(raw_name)
+    pid = part.get("id") or ""
+    state = part.get("state") or {}
+    status = state.get("status") if isinstance(state, dict) else None
+    tool_input = state.get("input") if isinstance(state, dict) else None
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+
+    if pid not in tool_started and status in ("pending", "running"):
+        tool_started.add(pid)
+        await _send_status(websocket, conversation_id, "tool", f"调用工具：{name}")
+        await websocket.send_json({
+            "type": "agent_tool_use",
+            "payload": {
+                "id": pid,
+                "name": name,
+                "input": tool_input,
+                "conversation_id": conversation_id,
+            },
+        })
+        return
+
+    if status in ("completed", "error"):
+        if pid not in tool_started:
+            # Some events skip pending/running; still surface the call.
+            tool_started.add(pid)
+            await websocket.send_json({
+                "type": "agent_tool_use",
+                "payload": {
+                    "id": pid,
+                    "name": name,
+                    "input": tool_input,
+                    "conversation_id": conversation_id,
+                },
+            })
+        output = ""
+        if isinstance(state, dict):
+            output = state.get("output") or state.get("error") or ""
+        await websocket.send_json({
+            "type": "agent_tool_result",
+            "payload": {
+                "id": pid,
+                "name": name,
+                "output": str(output),
+                "is_error": status == "error",
+                "conversation_id": conversation_id,
+            },
+        })
+
+
+async def _auto_render_and_repair_opencode(
+    *,
+    websocket: WebSocket,
+    conversation_id: str,
+    session_id: str,
+    directory: str,
+    cad_file: Path,
+    state: dict,
+):
+    for attempt in range(MAX_CAD_REPAIR_TURNS + 1):
+        result = await _render_cadquery_file(websocket, conversation_id, cad_file)
+        if result.get("success"):
+            state["last_render_ok"] = True
+            return
+
+        if attempt >= MAX_CAD_REPAIR_TURNS:
+            return
+
+        error = str(result.get("error") or "CAD 执行失败")
+        await _send_status(
+            websocket, conversation_id, "repair",
+            f"自动修复中（{attempt + 1}/{MAX_CAD_REPAIR_TURNS}）",
+        )
+        await websocket.send_json({
+            "type": "agent_repair_start",
+            "payload": {
+                "attempt": attempt + 1,
+                "max_attempts": MAX_CAD_REPAIR_TURNS,
+                "error": error,
+                "conversation_id": conversation_id,
+            },
+        })
+        repair_prompt = (
+            f"执行 cadquery.py 失败，错误如下：\n{error}\n"
+            "请修复 cadquery.py（保持 result 变量与 params 字典），无需自己渲染。"
+        )
+        ok = await _run_opencode_prompt(
+            websocket=websocket,
+            conversation_id=conversation_id,
+            session_id=session_id,
+            directory=directory,
+            text=repair_prompt,
+        )
+        if not ok:
+            return
 
 
 async def _run_agent_loop(

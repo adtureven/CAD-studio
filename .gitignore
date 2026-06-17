@@ -22,6 +22,9 @@ packages/frontend/dist/
 .idea/
 *.swp
 
+# Local tooling (opencode binary + XDG cache, not for VCS)
+.tools/
+
 # OS
 .DS_Store
 Thumbs.db
