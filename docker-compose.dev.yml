@@ -6,7 +6,7 @@ services:
     ports:
       - "8002:8000"
     env_file:
-      - .env
+      - packages/backend/.env
     volumes:
       - ./packages/backend/src:/app/src
       # Bind mount so opencode (running on the host) sees the same cadquery.py

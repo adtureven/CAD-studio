@@ -6,6 +6,7 @@ import anthropic
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..config import settings
+from ..services.ai.base import split_image_data
 from ..services.cad.executor import execute_cadquery
 from ..services.opencode import client as opencode_client
 from ..services.opencode import provision as opencode_provision
@@ -239,7 +240,8 @@ async def _run_agent_turn_opencode(
     active_session: dict,
 ):
     message = (payload.get("message") or "").strip()
-    if not message:
+    images = payload.get("images") or []
+    if not message and not images:
         return
 
     conversation_id = payload.get("conversation_id") or "default"
@@ -295,6 +297,7 @@ async def _run_agent_turn_opencode(
         session_id=session_id,
         directory=directory,
         text=message,
+        images=images,
     )
 
     if not ok:
@@ -331,6 +334,7 @@ async def _run_opencode_prompt(
     session_id: str,
     directory: str,
     text: str,
+    images: list,
 ) -> bool:
     """Send one prompt and translate opencode SSE events into agent_* messages.
 
@@ -421,7 +425,8 @@ async def _run_opencode_prompt(
         # Give the SSE stream a moment to connect before prompting.
         await asyncio.sleep(0.3)
         try:
-            await opencode_client.prompt(session_id, text, directory)
+            parts = await _build_opencode_parts(conversation_id, text, images)
+            await opencode_client.prompt(session_id, parts, directory)
         except Exception as exc:
             consume_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -547,6 +552,7 @@ async def _auto_render_and_repair_opencode(
             session_id=session_id,
             directory=directory,
             text=repair_prompt,
+            images=[],
         )
         if not ok:
             return
@@ -832,6 +838,46 @@ async def _send_status(websocket: WebSocket, conversation_id: str, phase: str, l
         "type": "agent_status",
         "payload": {"phase": phase, "label": label, "conversation_id": conversation_id},
     })
+
+
+async def _build_opencode_parts(conversation_id: str, text: str, images: list) -> list[dict]:
+    parts: list[dict] = []
+    has_image = False
+
+    for index, image in enumerate(images or []):
+        if not isinstance(image, str):
+            continue
+        value = image.strip()
+        if not value:
+            continue
+
+        mime, data = split_image_data(value)
+        if not data:
+            continue
+        has_image = True
+
+        ext = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/webp": ".webp",
+        }.get(mime, ".bin")
+        parts.append({
+            "type": "file",
+            "mime": mime,
+            "filename": f"prompt_image_{index + 1}{ext}",
+            "url": value if value.startswith("data:") else f"data:{mime};base64,{data}",
+        })
+
+    if text:
+        parts.append({"type": "text", "text": text})
+    elif has_image:
+        parts.append({
+            "type": "text",
+            "text": "请根据上传的图片理解需求，并生成或修改当前 CAD 方案。",
+        })
+
+    return parts
 
 
 async def _render_cadquery_file(websocket: WebSocket, conversation_id: str, cad_file: Path) -> dict:

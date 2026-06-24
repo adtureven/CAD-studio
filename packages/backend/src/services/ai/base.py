@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import AsyncIterator
 from dataclasses import dataclass
+import re
 
 
 @dataclass
@@ -20,6 +21,24 @@ class AIRequest:
     temperature: float = 0.0
     images: list[bytes] | None = None
     reasoning_effort: str = "low"
+
+
+_DATA_URL_RE = re.compile(
+    r"^data:(?P<mime>[^;,]+)?(?:;charset=[^;,]+)?;base64,(?P<data>.+)$",
+    re.DOTALL,
+)
+
+
+def split_image_data(image: str, default_mime: str = "image/png") -> tuple[str, str]:
+    value = (image or "").strip()
+    if not value:
+        return default_mime, ""
+
+    match = _DATA_URL_RE.match(value)
+    if match:
+        return match.group("mime") or default_mime, match.group("data")
+
+    return default_mime, value
 
 
 class AbstractAIProvider(ABC):

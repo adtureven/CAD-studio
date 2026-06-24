@@ -55,13 +55,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       conversationId = state.createConversation();
     }
 
-    const message: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content,
-      images,
-      timestamp: Date.now(),
-    };
+      const message: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content,
+        images: images?.length ? [...images] : undefined,
+        timestamp: Date.now(),
+      };
 
     set((state) => {
       const conversations = new Map(state.conversations);

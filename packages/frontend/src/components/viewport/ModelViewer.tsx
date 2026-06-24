@@ -6,6 +6,7 @@ import { useViewportStore } from "@/stores/viewportStore";
 import { useParameterStore } from "@/stores/parameterStore";
 import { loadStepFromUrl, type StepLoadResult } from "@/services/stepLoader";
 import * as THREE from "three";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 const MODEL_MATERIAL_PROPS = {
   color: "#5C7C5E",
@@ -225,6 +226,7 @@ function EnclosurePreview({ params }: { params: Record<string, number> }) {
 
 interface HoveredFaceInfo {
   faceId: number;
+  surfaceId: number;
   meshIndex: number;
   triangles: number[];
 }
@@ -303,6 +305,7 @@ function buildEdgeGeometry(
 function StepModel({ url }: { url: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const { camera } = useThree();
+  const controls = useThree((s) => (s as unknown as { controls?: OrbitControlsImpl }).controls);
   const [stepData, setStepData] = useState<StepLoadResult | null>(null);
   const [error, setError] = useState(false);
   const [hovered, setHovered] = useState<HoveredFaceInfo | null>(null);
@@ -313,6 +316,9 @@ function StepModel({ url }: { url: string }) {
     let cancelled = false;
     setStepData(null);
     setError(false);
+    setHovered(null);
+    setHoverPoint(null);
+    setHoveredFaceStore(null);
 
     loadStepFromUrl(url)
       .then((data) => {
@@ -325,29 +331,47 @@ function StepModel({ url }: { url: string }) {
         }
       })
       .catch(() => {
-        if (!cancelled) setError(true);
+        if (!cancelled) {
+          useViewportStore.getState().setError("STEP file could not be rendered");
+          setError(true);
+        }
       });
 
     return () => { cancelled = true; };
-  }, [url]);
+  }, [url, setHoveredFaceStore]);
 
   useEffect(() => {
     if (!stepData || !groupRef.current) return;
 
-    const box = new THREE.Box3().setFromObject(groupRef.current);
+    const box = new THREE.Box3();
+    for (const geo of stepData.geometries) {
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      if (geo.boundingBox && !geo.boundingBox.isEmpty()) {
+        box.union(geo.boundingBox);
+      }
+    }
+    if (box.isEmpty()) return;
+
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
-    groupRef.current.position.sub(center);
-
     const maxDim = Math.max(size.x, size.y, size.z);
-    const distance = maxDim * 2.5;
+    if (!Number.isFinite(maxDim) || maxDim <= 0) return;
+
+    groupRef.current.position.set(-center.x, -center.y, -center.z);
+
+    const distance = Math.max(maxDim * 2.5, 20);
     (camera as THREE.PerspectiveCamera).position.set(
       distance * 0.7,
       distance * 0.5,
       distance * 0.7
     );
+    (camera as THREE.PerspectiveCamera).near = Math.max(distance / 1000, 0.1);
+    (camera as THREE.PerspectiveCamera).far = distance * 20;
+    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
     camera.lookAt(0, 0, 0);
-  }, [stepData, camera]);
+    controls?.target.set(0, 0, 0);
+    controls?.update();
+  }, [stepData, camera, controls]);
 
   const handlePointerMove = useCallback((e: ThreeEvent<PointerEvent>, meshIndex: number) => {
     e.stopPropagation();
@@ -359,12 +383,16 @@ function StepModel({ url }: { url: string }) {
     const faceId = triMap[e.faceIndex];
     if (faceId === undefined || faceId < 0) return;
 
-    if (faceId !== hovered?.faceId) {
-      const triangles: number[] = [];
-      for (let t = 0; t < triMap.length; t++) {
-        if (triMap[t] === faceId) triangles.push(t);
-      }
-      setHovered({ faceId, meshIndex, triangles });
+    const surfaceMap = stepData.triangleSurfaceMap[meshIndex];
+    const groups = stepData.surfaceGroups[meshIndex];
+    const surfaceId = surfaceMap?.[e.faceIndex] ?? -1;
+    const group = surfaceId >= 0 ? groups?.[surfaceId] : undefined;
+    const triangles = group?.triangles ?? Array.from(triMap.keys()).filter((t) => triMap[t] === faceId);
+    if (triangles.length === 0) return;
+    const hoverSurfaceId = group?.id ?? -1;
+
+    if (faceId !== hovered?.faceId || hoverSurfaceId !== hovered?.surfaceId) {
+      setHovered({ faceId, surfaceId: hoverSurfaceId, meshIndex, triangles });
       setHoverPoint(e.point.clone());
       setHoveredFaceStore(faceId);
     } else {
@@ -415,7 +443,7 @@ function StepModel({ url }: { url: string }) {
       ))}
 
       {highlightGeo && (
-        <mesh geometry={highlightGeo} renderOrder={1}>
+        <mesh geometry={highlightGeo} renderOrder={1} raycast={() => null}>
           <meshStandardMaterial
             color="#8BB88E"
             emissive="#3A5C3A"
@@ -433,7 +461,7 @@ function StepModel({ url }: { url: string }) {
       )}
 
       {edgeGeo && (
-        <lineSegments geometry={edgeGeo} renderOrder={2}>
+        <lineSegments geometry={edgeGeo} renderOrder={2} raycast={() => null}>
           <lineBasicMaterial color="#FFFFFF" linewidth={2} depthTest={false} />
         </lineSegments>
       )}

@@ -20,9 +20,15 @@ def _base_url() -> str:
     return settings.opencode_base_url.rstrip("/")
 
 
+def _auth() -> tuple[str, str] | None:
+    if not settings.opencode_server_password:
+        return None
+    return ("opencode", settings.opencode_server_password)
+
+
 async def health() -> dict:
     async with httpx.AsyncClient(timeout=5.0) as client:
-        resp = await client.get(f"{_base_url()}/global/health")
+        resp = await client.get(f"{_base_url()}/global/health", auth=_auth())
         resp.raise_for_status()
         return resp.json()
 
@@ -36,6 +42,7 @@ async def create_session(directory: str, title: str | None = None) -> str:
             f"{_base_url()}/session",
             params={"directory": directory},
             json=body,
+            auth=_auth(),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -45,20 +52,21 @@ async def create_session(directory: str, title: str | None = None) -> str:
     return session_id
 
 
-async def prompt(session_id: str, text: str, directory: str) -> None:
+async def prompt(session_id: str, parts: list[dict], directory: str) -> None:
     """Send a prompt without waiting for completion; result arrives via /event."""
     body = {
         "model": {
             "providerID": settings.opencode_provider_id,
             "modelID": settings.default_model,
         },
-        "parts": [{"type": "text", "text": text}],
+        "parts": parts,
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{_base_url()}/session/{session_id}/prompt_async",
             params={"directory": directory},
             json=body,
+            auth=_auth(),
         )
         if resp.status_code not in (200, 204):
             raise OpencodeError(
@@ -69,7 +77,7 @@ async def prompt(session_id: str, text: str, directory: str) -> None:
 async def abort(session_id: str) -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(f"{_base_url()}/session/{session_id}/abort")
+            await client.post(f"{_base_url()}/session/{session_id}/abort", auth=_auth())
     except Exception:
         pass
 
@@ -84,7 +92,7 @@ async def events() -> AsyncIterator[dict]:
     ``payload.properties`` and filter by ``directory``/``sessionID``.
     """
     async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream("GET", f"{_base_url()}/global/event") as resp:
+        async with client.stream("GET", f"{_base_url()}/global/event", auth=_auth()) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data:"):

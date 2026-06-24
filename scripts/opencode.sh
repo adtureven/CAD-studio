@@ -49,14 +49,26 @@ cd "$WORKDIR"
 # generate the config from .env here and point OPENCODE_CONFIG at it, so the
 # provider is registered the moment the server boots (config is read at startup,
 # not hot-reloaded per session).
-ENV_FILE="$ROOT_DIR/.env"
+ENV_FILE="$ROOT_DIR/packages/backend/.env"
 if [ -f "$ENV_FILE" ]; then
     # shellcheck disable=SC1090
     set -a; . "$ENV_FILE"; set +a
 fi
 
-AGENT_BASE_URL="${AGENT_BASE_URL:-https://api.deepseek.com/anthropic}"
-DEFAULT_MODEL="${DEFAULT_MODEL:-deepseek-v4-flash}"
+first_model() {
+    local value="$1"
+    value="${value%%,*}"
+    # Trim leading/trailing shell whitespace.
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s\n' "$value"
+}
+
+# Provider base URL for the model gateway. Do not reuse OPENCODE_BASE_URL here:
+# the backend uses OPENCODE_BASE_URL for the local opencode HTTP server.
+OPENCODE_PROVIDER_BASE_URL="${OPENCODE_PROVIDER_BASE_URL:-${GATEWAY_URL:-${AGENT_BASE_URL:-https://token-plan-sgp.xiaomimimo.com/v1}}}"
+DEFAULT_MODEL="${DEFAULT_MODEL:-$(first_model "${GATEWAY_MODELS:-}")}"
+DEFAULT_MODEL="${DEFAULT_MODEL:-mimo-v2.5-pro}"
 OPENCODE_PROVIDER_ID="${OPENCODE_PROVIDER_ID:-cadgw}"
 PROVIDER_KEY="${ANTHROPIC_API_KEY:-${GATEWAY_API_KEY:-}}"
 
@@ -71,14 +83,24 @@ cat > "$CONFIG_FILE" <<EOF
   "\$schema": "https://opencode.ai/config.json",
   "provider": {
     "$OPENCODE_PROVIDER_ID": {
-      "npm": "@ai-sdk/anthropic",
-      "options": { "baseURL": "$AGENT_BASE_URL", "apiKey": "$PROVIDER_KEY" },
-      "models": { "$DEFAULT_MODEL": {} }
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "$OPENCODE_PROVIDER_BASE_URL", "apiKey": "$PROVIDER_KEY" },
+      "models": {
+        "$DEFAULT_MODEL": {
+          "attachment": true,
+          "tool_call": true,
+          "modalities": { "input": ["text", "image"], "output": ["text"] }
+        }
+      }
     }
   },
   "model": "$OPENCODE_PROVIDER_ID/$DEFAULT_MODEL",
   "permission": {
     "edit": { "*": "deny", "**/cadquery.py": "allow" },
+    "skill": {
+      "cadquery-studio": "allow",
+      "cad-vision-brief": "allow"
+    },
     "bash": "deny",
     "webfetch": "deny"
   }
@@ -88,5 +110,5 @@ export OPENCODE_CONFIG="$CONFIG_FILE"
 
 echo "Starting opencode serve in $WORKDIR (port $PORT)..."
 echo "Using opencode binary: $OPENCODE_BIN"
-echo "Using config: $OPENCODE_CONFIG (provider=$OPENCODE_PROVIDER_ID model=$DEFAULT_MODEL)"
+echo "Using config: $OPENCODE_CONFIG (provider=$OPENCODE_PROVIDER_ID model=$DEFAULT_MODEL baseURL=$OPENCODE_PROVIDER_BASE_URL)"
 exec "$OPENCODE_BIN" serve --port "$PORT" --hostname "$HOSTNAME" --cors "$CORS"

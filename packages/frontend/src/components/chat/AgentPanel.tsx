@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import {
   AlertTriangle,
@@ -8,10 +8,12 @@ import {
   ChevronDown,
   ChevronRight,
   Code2,
+  ImagePlus,
   Loader2,
   Send,
   Terminal,
   Wrench,
+  X,
 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
 import type { ParameterDef } from "@/types/model";
@@ -19,15 +21,16 @@ import { useLibraryStore } from "@/stores/libraryStore";
 import { useParameterStore } from "@/stores/parameterStore";
 import { useViewportStore } from "@/stores/viewportStore";
 import { getBackendWsUrl } from "@/utils/backendWs";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { CollapsibleContent } from "./CollapsibleContent";
+import { ImageAttachments } from "./ImageAttachments";
+import { MarkdownContent } from "./MarkdownContent";
 
 type AgentEntry = {
   id: string;
   role: "user" | "agent" | "tool" | "system" | "error" | "thinking";
   title: string;
   content?: string;
+  images?: string[];
   status?: "running" | "success" | "error";
   toolInput?: string;
   toolOutput?: string;
@@ -63,11 +66,13 @@ export function AgentPanel() {
   const createConversation = useChatStore((s) => s.createConversation);
   const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [input, setInput] = useState("");
+  const [images, setImages] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [runStatus, setRunStatus] = useState<AgentRunStatus | null>(null);
   const [clock, setClock] = useState(Date.now());
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const wsUrlRef = useRef(getBackendWsUrl("/api/agent/ws"));
   const lastActiveConversationIdRef = useRef<string | null>(activeConversationId);
@@ -132,6 +137,7 @@ export function AgentPanel() {
         if (wsRef.current === ws) wsRef.current = null;
         if (disposed) return;
         setConnectionState("disconnected");
+        settleActiveEntries(setEntries, "error");
         setIsRunning(false);
         setRunStatus(null);
         streamingIdRef.current = null;
@@ -184,7 +190,7 @@ export function AgentPanel() {
 
   const send = useCallback(() => {
     const message = input.trim();
-    if (!message || isRunning || wsRef.current?.readyState !== WebSocket.OPEN) return;
+    if ((!message && images.length === 0) || isRunning || wsRef.current?.readyState !== WebSocket.OPEN) return;
 
     let conversationId = activeConversationId;
     if (!conversationId) {
@@ -201,10 +207,12 @@ export function AgentPanel() {
         id: crypto.randomUUID(),
         role: "user",
         title: "你",
-        content: message,
+        content: message || (images.length > 0 ? `已发送 ${images.length} 张图片` : ""),
+        images: images.length > 0 ? [...images] : undefined,
       },
     ]);
     setInput("");
+    setImages([]);
     setIsRunning(true);
     setRunStatus(makeRunStatus("启动 Agent", "正在创建隔离的 cadquery.py 会话"));
     wsRef.current.send(
@@ -213,11 +221,30 @@ export function AgentPanel() {
         payload: {
           conversation_id: conversationId,
           message,
+          images,
           model: selectedModel,
         },
       })
     );
-  }, [activeConversationId, createConversation, input, isRunning, selectedModel]);
+  }, [activeConversationId, createConversation, images, input, isRunning, selectedModel]);
+
+  const handleImageUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === "string" ? reader.result : "";
+        if (result) {
+          setImages((prev) => [...prev, result]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+
+    event.target.value = "";
+  }, []);
 
   const status = useMemo(() => {
     if (isRunning) return "运行中";
@@ -279,29 +306,67 @@ export function AgentPanel() {
 
       <div className="p-3 border-t border-border bg-surface">
         <div className="rounded-lg bg-cream border border-border overflow-hidden shadow-sm">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="让 Agent 编辑 cadquery.py，例如：做一个带四个安装孔的法兰盘"
-            rows={3}
-            className="w-full resize-none bg-transparent px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-secondary/60"
-          />
-          <div className="flex items-center justify-between px-2 py-2 border-t border-border-light">
-            <span className="text-[11px] text-text-secondary">Enter 发送 / Shift+Enter 换行</span>
+          {images.length > 0 && (
+            <div className="flex gap-2 flex-wrap px-3 pt-3">
+              {images.map((img, index) => (
+                <div
+                  key={`${img.slice(0, 24)}-${index}`}
+                  className="relative h-12 w-12 overflow-hidden rounded-md border border-border bg-surface"
+                >
+                  <img src={img} alt="" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setImages((prev) => prev.filter((_, idx) => idx !== index))}
+                    className="absolute right-0 top-0 inline-flex h-4 w-4 items-center justify-center rounded-bl-md bg-black/55 text-white"
+                    title="移除图片"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 rounded-md hover:bg-cream-dark text-text-secondary transition-colors"
+              title="上传图片"
+            >
+              <ImagePlus className="w-4 h-4" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleImageUpload}
+            />
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder="让 Agent 编辑 cadquery.py，例如：做一个带四个安装孔的法兰盘"
+              rows={3}
+              className="flex-1 resize-none bg-transparent px-0 py-1 text-sm text-text-primary outline-none placeholder:text-text-secondary/60"
+            />
             <button
               onClick={send}
-              disabled={!isConnected || isRunning || !input.trim()}
+              disabled={!isConnected || isRunning || (!input.trim() && images.length === 0)}
               className="w-7 h-7 rounded-md bg-primary hover:bg-primary-hover text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
               title="发送"
             >
               {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </button>
+          </div>
+          <div className="flex items-center justify-between px-3 pb-2">
+            <span className="text-[11px] text-text-secondary">Enter 发送 / Shift+Enter 换行</span>
           </div>
         </div>
       </div>
@@ -372,7 +437,7 @@ function handleAgentEvent(
     }
 
     case "agent_tool_use": {
-      streamingIdRef.current = null;
+      finalizeStreaming(streamingIdRef, setEntries);
       finalizeThinking(thinkingIdRef, setEntries);
       const toolId = String(payload.id ?? crypto.randomUUID());
       const name = String(payload.name ?? "tool");
@@ -473,8 +538,9 @@ function handleAgentEvent(
     }
 
     case "agent_done": {
-      streamingIdRef.current = null;
+      finalizeStreaming(streamingIdRef, setEntries);
       finalizeThinking(thinkingIdRef, setEntries);
+      settleActiveEntries(setEntries, Number(payload.return_code) === 0 ? "success" : "error");
       setIsRunning(false);
       setRunStatus(null);
       useParameterStore.getState().setExecuting(false);
@@ -495,8 +561,9 @@ function handleAgentEvent(
     }
 
     case "agent_error": {
-      streamingIdRef.current = null;
+      finalizeStreaming(streamingIdRef, setEntries);
       finalizeThinking(thinkingIdRef, setEntries);
+      settleActiveEntries(setEntries, "error");
       const message = String(payload.message ?? payload.content ?? "");
       setIsRunning(false);
       setRunStatus(null);
@@ -533,6 +600,23 @@ function finalizeStreamingIfMissing(
   ]);
 }
 
+function finalizeStreaming(
+  streamingIdRef: RefObject<string | null>,
+  setEntries: Dispatch<SetStateAction<AgentEntry[]>>
+) {
+  const streamingId = streamingIdRef.current;
+  streamingIdRef.current = null;
+  if (!streamingId) return;
+  setEntries((prev) => {
+    const target = prev.find((e) => e.id === streamingId);
+    if (!target) return prev;
+    if (!target.content || !target.content.trim()) {
+      return prev.filter((e) => e.id !== streamingId);
+    }
+    return prev.map((e) => (e.id === streamingId ? { ...e, streaming: false } : e));
+  });
+}
+
 function finalizeThinkingIfMissing(
   thinkingIdRef: RefObject<string | null>,
   setEntries: Dispatch<SetStateAction<AgentEntry[]>>
@@ -561,6 +645,29 @@ function finalizeThinking(
     }
     return prev.map((e) => (e.id === thinkingId ? { ...e, streaming: false } : e));
   });
+}
+
+function settleActiveEntries(
+  setEntries: Dispatch<SetStateAction<AgentEntry[]>>,
+  toolStatus: "success" | "error"
+) {
+  setEntries((prev) =>
+    prev
+      .filter((entry) => {
+        if (!entry.streaming) return true;
+        if (entry.role !== "agent" && entry.role !== "thinking") return true;
+        return Boolean(entry.content?.trim());
+      })
+      .map((entry) => {
+        if (entry.role === "tool" && entry.status === "running") {
+          return { ...entry, status: toolStatus };
+        }
+        if (entry.streaming) {
+          return { ...entry, streaming: false };
+        }
+        return entry;
+      })
+  );
 }
 
 function makeRunStatus(label: string, detail?: string): AgentRunStatus {
@@ -645,12 +752,18 @@ function formatElapsed(seconds: number) {
   return `${minutes}:${remainingSeconds}`;
 }
 
-function AgentEntryView({ entry }: { entry: AgentEntry }) {
+const AgentEntryView = memo(function AgentEntryView({ entry }: { entry: AgentEntry }) {
   if (entry.role === "user") {
     return (
       <div className="flex justify-end py-1">
         <div className="max-w-[86%] rounded-lg rounded-tr-sm bg-primary px-3 py-2 text-sm leading-relaxed text-white shadow-sm">
-          <div className="whitespace-pre-wrap break-words">{entry.content}</div>
+          <CollapsibleContent
+            content={entry.content ?? ""}
+            maxChars={900}
+            maxLines={12}
+            previewClassName="whitespace-pre-wrap break-words"
+            buttonClassName="mt-2 border-white/25 bg-white/10 text-white/85 hover:border-white/40 hover:text-white"
+          />
         </div>
       </div>
     );
@@ -687,21 +800,29 @@ function AgentEntryView({ entry }: { entry: AgentEntry }) {
       <div className={`mt-0.5 w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${tone}`}>
         <Icon className="w-3.5 h-3.5" />
       </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-[11px] font-medium text-text-secondary">
-          <span className="truncate">{entry.title}</span>
-          {entry.streaming && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
-        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[11px] font-medium text-text-secondary">
+            <span className="truncate">{entry.title}</span>
+            {entry.streaming && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
+          </div>
+        {"images" in entry && <ImageAttachments images={entry.images ?? []} className="mt-1" />}
         {entry.role === "agent" && (entry.content || entry.streaming) && (
           <AgentMarkdown content={entry.content ?? ""} />
         )}
         {entry.content && entry.role !== "agent" && (
-          <pre className={`mt-1 font-sans ${contentClass}`}>{entry.content}</pre>
+          <div className={`mt-1 font-sans ${contentClass}`}>
+            <CollapsibleContent
+              content={entry.content}
+              maxChars={1100}
+              maxLines={16}
+              previewClassName="whitespace-pre-wrap break-words"
+            />
+          </div>
         )}
       </div>
     </div>
   );
-}
+});
 
 function ToolEntryView({ entry }: { entry: AgentEntry }) {
   const [open, setOpen] = useState(false);
@@ -785,9 +906,14 @@ function ThinkingEntryView({ entry }: { entry: AgentEntry }) {
           {entry.streaming && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
         </button>
         {open && content && (
-          <pre className="mt-1 rounded-md border border-border bg-cream px-2.5 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-sans text-text-secondary/90 italic">
-            {content}
-          </pre>
+          <div className="mt-1 rounded-md border border-border bg-cream px-2.5 py-2 text-[11px] leading-relaxed font-sans text-text-secondary/90 italic">
+            <CollapsibleContent
+              content={content}
+              maxChars={900}
+              maxLines={12}
+              previewClassName="whitespace-pre-wrap break-words"
+            />
+          </div>
         )}
       </div>
     </div>
@@ -796,40 +922,19 @@ function ThinkingEntryView({ entry }: { entry: AgentEntry }) {
 
 function AgentMarkdown({ content }: { content: string }) {
   return (
-    <div className="mt-1 rounded-lg border border-border bg-cream px-3 py-2 text-sm leading-relaxed text-text-primary shadow-sm">
-      <div className="prose prose-sm max-w-none text-text-primary [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_code]:rounded [&_code]:bg-cream-dark [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:my-2 [&_pre]:overflow-x-auto [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-cream-dark [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            code({ className, children, ...props }) {
-              const match = /language-(\w+)/.exec(className || "");
-              const inline = !match;
-              if (inline) {
-                return (
-                  <code className="rounded bg-cream-dark px-1 py-0.5 text-xs" {...props}>
-                    {children}
-                  </code>
-                );
-              }
-              return (
-                <SyntaxHighlighter
-                  language={match[1]}
-                  PreTag="div"
-                  customStyle={{
-                    margin: 0,
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                  }}
-                >
-                  {String(children).replace(/\n$/, "")}
-                </SyntaxHighlighter>
-              );
-            },
-          }}
-        >
-          {content}
-        </ReactMarkdown>
-      </div>
+    <div className="mt-1 min-w-0 rounded-lg border border-border bg-cream px-3 py-2 text-sm leading-relaxed text-text-primary shadow-sm overflow-hidden">
+      <CollapsibleContent
+        content={content}
+        maxChars={1200}
+        maxLines={18}
+        previewClassName="whitespace-pre-wrap break-words"
+        renderContent={(value) => (
+          <MarkdownContent
+            content={value}
+            className="prose prose-sm max-w-full text-text-primary [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5 [&_li]:my-0.5 [&_code]:rounded [&_code]:bg-cream-dark [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_table]:text-xs [&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-cream-dark [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1"
+          />
+        )}
+      />
     </div>
   );
 }

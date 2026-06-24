@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown, ChevronRight, Brain } from "lucide-react";
+import { CollapsibleContent } from "./CollapsibleContent";
 
 interface ThinkingIndicatorProps {
   content: string;
@@ -37,9 +38,14 @@ export function ThinkingIndicator({ content }: ThinkingIndicatorProps) {
         {expanded && (
           <div
             ref={contentRef}
-            className="rounded-lg bg-cream border border-border-light p-3 text-xs text-text-secondary italic leading-relaxed max-h-48 overflow-y-auto whitespace-pre-wrap"
+            className="rounded-lg bg-cream border border-border-light p-3 text-xs text-text-secondary italic leading-relaxed max-h-48 overflow-y-auto"
           >
-            {content}
+            <CollapsibleContent
+              content={content}
+              maxChars={900}
+              maxLines={12}
+              previewClassName="whitespace-pre-wrap break-words"
+            />
           </div>
         )}
       </div>

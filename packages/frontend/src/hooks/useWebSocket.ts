@@ -55,13 +55,18 @@ export function useWebSocket() {
       }
 
       chatStore.addUserMessage(message, images);
+      const payloadImages = (images ?? []).map(normalizeImagePayload);
 
       const conversation = chatStore.conversations.get(conversationId);
       const history =
         conversation?.messages
           .filter((m) => m.role === "user" || m.role === "assistant")
           .slice(0, -1)
-          .map((m) => ({ role: m.role, content: m.content })) ?? [];
+          .map((m) => ({
+            role: m.role,
+            content: m.content,
+            images: m.images?.map(normalizeImagePayload),
+          })) ?? [];
 
       wsRef.current?.send(
         JSON.stringify({
@@ -69,7 +74,7 @@ export function useWebSocket() {
           payload: {
             conversation_id: conversationId,
             message,
-            images: images || [],
+            images: payloadImages,
             model: chatStore.selectedModel,
             enable_thinking: true,
             history,
@@ -101,6 +106,12 @@ export function useWebSocket() {
   );
 
   return { sendMessage, updateParameters };
+}
+
+function normalizeImagePayload(image: string) {
+  if (!image.startsWith("data:")) return image;
+  const commaIndex = image.indexOf(",");
+  return commaIndex >= 0 ? image.slice(commaIndex + 1) : image;
 }
 
 function handleMessage(event: StreamEvent) {

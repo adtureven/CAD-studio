@@ -6,7 +6,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - packages/backend/.env
     volumes:
       - ./packages/backend/src:/app/src
       - backend-generated:/app/generated

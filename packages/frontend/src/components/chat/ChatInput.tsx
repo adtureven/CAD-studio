@@ -44,15 +44,15 @@ export function ChatInput({ onSendMessage, isStreaming }: ChatInputProps) {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = (reader.result as string).split(",")[1];
-        if (base64) {
-          setImages((prev) => [...prev, base64]);
-        }
-      };
-      reader.readAsDataURL(file);
+      Array.from(files).forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = typeof reader.result === "string" ? reader.result : "";
+          if (result) {
+            setImages((prev) => [...prev, result]);
+          }
+        };
+        reader.readAsDataURL(file);
     });
   };
 
@@ -62,11 +62,7 @@ export function ChatInput({ onSendMessage, isStreaming }: ChatInputProps) {
         <div className="flex gap-2 mb-2 flex-wrap">
           {images.map((img, i) => (
             <div key={i} className="relative w-12 h-12 rounded-md overflow-hidden border border-border">
-              <img
-                src={`data:image/png;base64,${img}`}
-                className="w-full h-full object-cover"
-                alt=""
-              />
+              <img src={img.startsWith("data:") ? img : `data:image/png;base64,${img}`} className="w-full h-full object-cover" alt="" />
               <button
                 onClick={() => setImages((prev) => prev.filter((_, idx) => idx !== i))}
                 className="absolute top-0 right-0 w-4 h-4 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-bl"

@@ -18,12 +18,17 @@ packages/frontend/dist/
 
 # IDE
 .claude/
+.trae/
 .vscode/
 .idea/
 *.swp
 
 # Local tooling (opencode binary + XDG cache, not for VCS)
 .tools/
+.opencode/.gitignore
+.opencode/node_modules/
+.opencode/package.json
+.opencode/package-lock.json
 
 # OS
 .DS_Store
@@ -34,6 +39,8 @@ packages/backend/.cache/
 packages/backend/generated/
 *.gltf
 *.glb
+example.jpg
+录屏2026-06-22 15.39.57.mov
 
 # Database
 *.db

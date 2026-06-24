@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
-ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseSettings):
@@ -11,14 +11,16 @@ class Settings(BaseSettings):
     gateway_api_key: str = ""
     gateway_models: str = ""
 
-    agent_base_url: str = "https://token-plan-sgp.xiaomimimo.com/anthropic"
-    default_model: str = "mimo-v2.5-pro"
+    agent_base_url: str = ""
+    default_model: str = ""
 
     # Agent mode powered by opencode. When disabled, fall back to the legacy
     # in-process anthropic loop.
     opencode_enabled: bool = True
     opencode_base_url: str = "http://127.0.0.1:4096"
     opencode_provider_id: str = "cadgw"
+    opencode_provider_base_url: str = ""
+    opencode_server_password: str = ""
     # When the backend runs in Docker but opencode runs on the host, the
     # session directory paths differ. Set this to the host-side absolute path
     # of generated/agent_sessions so the backend can hand opencode a path it
@@ -41,4 +43,15 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _first_gateway_model(value: str) -> str:
+    return next((item.strip() for item in value.split(",") if item.strip()), "")
+
+
+if not settings.agent_base_url:
+    settings.agent_base_url = settings.gateway_url or "https://token-plan-sgp.xiaomimimo.com/v1"
+if not settings.default_model:
+    settings.default_model = _first_gateway_model(settings.gateway_models) or "mimo-v2.5-pro"
+
 settings.generated_dir.mkdir(parents=True, exist_ok=True)
