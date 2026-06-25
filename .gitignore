@@ -15,6 +15,8 @@ packages/frontend/dist/
 # Environment
 .env
 .env.local
+# Per-model endpoints/keys (use models.example.json as a template)
+models.json
 
 # IDE
 .claude/

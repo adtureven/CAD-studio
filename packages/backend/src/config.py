@@ -1,7 +1,8 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
-ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+# Project root .env (single source of truth, shared with scripts/opencode.sh).
+ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):

@@ -7,13 +7,14 @@ from .base import AbstractAIProvider, AIRequest, StreamChunk
 
 
 class GatewayProvider(AbstractAIProvider):
-    def __init__(self, base_url: str, api_key: str, models: list[str]):
+    def __init__(self, base_url: str, api_key: str, models: list[str], names: dict[str, str] | None = None):
         self.client = openai.AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
             timeout=httpx.Timeout(60.0, connect=10.0),
         )
         self.models = {m: m for m in models}
+        self.names = names or {}
 
     def supports_model(self, model: str) -> bool:
         return model in self.models
@@ -23,7 +24,7 @@ class GatewayProvider(AbstractAIProvider):
 
     def list_models(self) -> list[dict]:
         return [
-            {"id": k, "name": k, "provider": "gateway"}
+            {"id": k, "name": self.names.get(k, k), "provider": "gateway"}
             for k in self.models
         ]
 

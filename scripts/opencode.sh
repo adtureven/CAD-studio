@@ -49,66 +49,29 @@ cd "$WORKDIR"
 # generate the config from .env here and point OPENCODE_CONFIG at it, so the
 # provider is registered the moment the server boots (config is read at startup,
 # not hot-reloaded per session).
-ENV_FILE="$ROOT_DIR/packages/backend/.env"
+ENV_FILE="$ROOT_DIR/.env"
 if [ -f "$ENV_FILE" ]; then
     # shellcheck disable=SC1090
     set -a; . "$ENV_FILE"; set +a
 fi
 
-first_model() {
-    local value="$1"
-    value="${value%%,*}"
-    # Trim leading/trailing shell whitespace.
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    printf '%s\n' "$value"
-}
-
-# Provider base URL for the model gateway. Do not reuse OPENCODE_BASE_URL here:
-# the backend uses OPENCODE_BASE_URL for the local opencode HTTP server.
-OPENCODE_PROVIDER_BASE_URL="${OPENCODE_PROVIDER_BASE_URL:-${GATEWAY_URL:-${AGENT_BASE_URL:-https://token-plan-sgp.xiaomimimo.com/v1}}}"
-DEFAULT_MODEL="${DEFAULT_MODEL:-$(first_model "${GATEWAY_MODELS:-}")}"
-DEFAULT_MODEL="${DEFAULT_MODEL:-mimo-v2.5-pro}"
-OPENCODE_PROVIDER_ID="${OPENCODE_PROVIDER_ID:-cadgw}"
-PROVIDER_KEY="${ANTHROPIC_API_KEY:-${GATEWAY_API_KEY:-}}"
-
-if [ -z "$PROVIDER_KEY" ]; then
-    echo "缺少 API key：请在 .env 设置 ANTHROPIC_API_KEY 或 GATEWAY_API_KEY。"
+# Generate opencode.json from models.json (or GATEWAY_* env fallback). Each
+# model becomes its own provider so per-model endpoints/keys work. We need a
+# python3 interpreter; the host system python is fine.
+PY_BIN="$(command -v python3 || true)"
+if [ -z "$PY_BIN" ]; then
+    echo "缺少 python3：生成 opencode 配置需要 python3。"
     exit 1
 fi
 
 CONFIG_FILE="$WORKDIR/opencode.json"
-cat > "$CONFIG_FILE" <<EOF
-{
-  "\$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "$OPENCODE_PROVIDER_ID": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": { "baseURL": "$OPENCODE_PROVIDER_BASE_URL", "apiKey": "$PROVIDER_KEY" },
-      "models": {
-        "$DEFAULT_MODEL": {
-          "attachment": true,
-          "tool_call": true,
-          "modalities": { "input": ["text", "image"], "output": ["text"] }
-        }
-      }
-    }
-  },
-  "model": "$OPENCODE_PROVIDER_ID/$DEFAULT_MODEL",
-  "permission": {
-    "edit": { "*": "deny", "**/cadquery.py": "allow" },
-    "skill": {
-      "cadquery-studio": "allow",
-      "cad-vision-brief": "allow"
-    },
-    "bash": "deny",
-    "webfetch": "deny"
-  }
-}
-EOF
+if ! "$PY_BIN" "$SCRIPT_DIR/gen_opencode_config.py" "$CONFIG_FILE"; then
+    echo "生成 opencode 配置失败。请检查 models.json 或 .env 的模型/密钥配置。"
+    exit 1
+fi
 export OPENCODE_CONFIG="$CONFIG_FILE"
 
 echo "Starting opencode serve in $WORKDIR (port $PORT)..."
 echo "Using opencode binary: $OPENCODE_BIN"
-echo "Using config: $OPENCODE_CONFIG (provider=$OPENCODE_PROVIDER_ID model=$DEFAULT_MODEL baseURL=$OPENCODE_PROVIDER_BASE_URL)"
+echo "Using config: $OPENCODE_CONFIG"
 exec "$OPENCODE_BIN" serve --port "$PORT" --hostname "$HOSTNAME" --cors "$CORS"

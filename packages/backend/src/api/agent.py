@@ -234,6 +234,22 @@ def _map_tool_name(name: str) -> str:
     return _OPENCODE_TOOL_LABELS.get(name, name)
 
 
+def _resolve_opencode_model(requested: str | None) -> str:
+    """Pick the model to send to opencode.
+
+    Only models declared in models.json (or the GATEWAY_* fallback) are
+    registered as opencode providers, so fall back to the configured default
+    when the frontend sends an unknown/empty value.
+    """
+    from ..services.ai import model_config
+
+    models = model_config.load_models()
+    allowed = {m.id for m in models}
+    if requested and requested in allowed:
+        return requested
+    return model_config.default_model_id()
+
+
 async def _run_agent_turn_opencode(
     websocket: WebSocket,
     payload: dict,
@@ -245,7 +261,7 @@ async def _run_agent_turn_opencode(
         return
 
     conversation_id = payload.get("conversation_id") or "default"
-    model = payload.get("model") or settings.default_model
+    model = _resolve_opencode_model(payload.get("model"))
 
     if not (settings.anthropic_api_key or settings.gateway_api_key):
         await websocket.send_json({
@@ -298,6 +314,7 @@ async def _run_agent_turn_opencode(
         directory=directory,
         text=message,
         images=images,
+        model=model,
     )
 
     if not ok:
@@ -317,6 +334,7 @@ async def _run_agent_turn_opencode(
         directory=directory,
         cad_file=cad_file,
         state=state,
+        model=model,
     )
 
     await _send_status(websocket, conversation_id, "done", "完成")
@@ -335,6 +353,7 @@ async def _run_opencode_prompt(
     directory: str,
     text: str,
     images: list,
+    model: str | None = None,
 ) -> bool:
     """Send one prompt and translate opencode SSE events into agent_* messages.
 
@@ -426,7 +445,7 @@ async def _run_opencode_prompt(
         await asyncio.sleep(0.3)
         try:
             parts = await _build_opencode_parts(conversation_id, text, images)
-            await opencode_client.prompt(session_id, parts, directory)
+            await opencode_client.prompt(session_id, parts, directory, model_id=model)
         except Exception as exc:
             consume_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -518,6 +537,7 @@ async def _auto_render_and_repair_opencode(
     directory: str,
     cad_file: Path,
     state: dict,
+    model: str | None = None,
 ):
     for attempt in range(MAX_CAD_REPAIR_TURNS + 1):
         result = await _render_cadquery_file(websocket, conversation_id, cad_file)
@@ -553,6 +573,7 @@ async def _auto_render_and_repair_opencode(
             directory=directory,
             text=repair_prompt,
             images=[],
+            model=model,
         )
         if not ok:
             return

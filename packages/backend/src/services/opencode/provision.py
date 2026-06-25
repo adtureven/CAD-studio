@@ -74,6 +74,7 @@ def build_root_config() -> dict:
                 "cadquery-studio": "allow",
                 "cad-vision-brief": "allow",
             },
+            "question": "deny",
             "bash": "deny",
             "webfetch": "deny",
         },
@@ -122,6 +123,7 @@ def _agents_md() -> str:
         base
         + "\n\n## opencode 运行约束\n\n"
         "- 你只能编辑当前会话目录下的 cadquery.py；可以读取已允许的 skill 指令和参考文件；禁止 shell、网络与其它项目文件。\n"
+        "- 不要向用户提问或等待确认（question 工具已禁用）。需求不明确时，自行做出合理的工程假设直接建模，并在代码注释或最终总结里说明你的假设。\n"
         "- 可用技能：cadquery-studio 负责 CadQuery 建模与修复；cad-vision-brief 负责把图片、截图、扫描件、草图或制图提炼成结构化 CAD brief。\n"
         "- 如果输入里有图片或图纸，通常先用 cad-vision-brief 提炼 brief，再用 cadquery-studio 建模；如果文字已经足够清楚，可直接进入 cadquery-studio。不要把这条做成固定路由，按任务复杂度自主选择。\n"
         "- 建模、修改或修复 CAD 时必须使用 cadquery-studio skill，并按其中的质量门槛检查需求覆盖、参数安全、几何稳定和渲染结果。\n"

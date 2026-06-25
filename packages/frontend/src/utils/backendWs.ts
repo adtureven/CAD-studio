@@ -5,10 +5,10 @@ export function getBackendWsUrl(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const { hostname, host, port } = window.location;
 
-  if (!port || port === "8000") {
+  if (!port || port === "8003") {
     return `${protocol}//${host}${normalizedPath}`;
   }
 
   const backendHostname = LOCAL_HOSTS.has(hostname) ? "127.0.0.1" : hostname;
-  return `${protocol}//${backendHostname}:8000${normalizedPath}`;
+  return `${protocol}//${backendHostname}:8003${normalizedPath}`;
 }

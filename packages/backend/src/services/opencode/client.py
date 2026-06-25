@@ -52,12 +52,22 @@ async def create_session(directory: str, title: str | None = None) -> str:
     return session_id
 
 
-async def prompt(session_id: str, parts: list[dict], directory: str) -> None:
-    """Send a prompt without waiting for completion; result arrives via /event."""
+async def prompt(
+    session_id: str,
+    parts: list[dict],
+    directory: str,
+    model_id: str | None = None,
+) -> None:
+    """Send a prompt without waiting for completion; result arrives via /event.
+
+    Each model is registered as its own opencode provider whose id equals the
+    model id (see scripts/gen_opencode_config.py), so providerID == modelID.
+    """
+    mid = model_id or settings.default_model
     body = {
         "model": {
-            "providerID": settings.opencode_provider_id,
-            "modelID": settings.default_model,
+            "providerID": mid,
+            "modelID": mid,
         },
         "parts": parts,
     }

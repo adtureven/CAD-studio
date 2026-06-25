@@ -1,8 +1,6 @@
 from .base import AbstractAIProvider
-from .claude_provider import ClaudeProvider
-from .openai_provider import OpenAIProvider
 from .gateway_provider import GatewayProvider
-from ...config import settings
+from . import model_config
 
 
 class AIModelRouter:
@@ -16,16 +14,13 @@ class AIModelRouter:
         self._init_providers()
 
     def _init_providers(self):
-        if settings.gateway_url and settings.gateway_api_key:
-            models = [m.strip() for m in settings.gateway_models.split(",") if m.strip()]
-            if models:
+        # models.json is the single source of truth. One provider per declared
+        # model so each can carry its own endpoint and API key.
+        for m in model_config.load_models():
+            if m.base_url and m.api_key:
                 self.providers.append(
-                    GatewayProvider(settings.gateway_url, settings.gateway_api_key, models)
+                    GatewayProvider(m.base_url, m.api_key, [m.id], {m.id: m.name})
                 )
-        if settings.anthropic_api_key:
-            self.providers.append(ClaudeProvider(settings.anthropic_api_key))
-        if settings.openai_api_key:
-            self.providers.append(OpenAIProvider(settings.openai_api_key))
 
     def get_provider(self, model: str) -> AbstractAIProvider:
         for provider in self.providers:
@@ -33,7 +28,7 @@ class AIModelRouter:
                 return provider
         if self.providers:
             return self.providers[0]
-        raise ValueError(f"No AI provider configured. Set API keys in .env")
+        raise ValueError("No AI provider configured. Add a model to models.json.")
 
     def list_available_models(self) -> list[dict]:
         models = []
