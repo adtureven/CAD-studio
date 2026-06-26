@@ -1,38 +1,85 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { OrbitControls, Grid } from "@react-three/drei";
 import { ModelViewer } from "./ModelViewer";
 import { useViewportStore } from "@/stores/viewportStore";
+import { frameCamera } from "@/utils/cameraFraming";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+
+const VIEW_DIRECTIONS = {
+  front: new THREE.Vector3(0, 0, 1),
+  back: new THREE.Vector3(0, 0, -1),
+  left: new THREE.Vector3(-1, 0, 0),
+  right: new THREE.Vector3(1, 0, 0),
+  top: new THREE.Vector3(0, 1, 0.001),
+  bottom: new THREE.Vector3(0, -1, 0.001),
+  iso: new THREE.Vector3(0.7, 0.5, 0.7),
+} as const;
+
+function isBoundsExcluded(object: THREE.Object3D) {
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (current.userData?.excludeFromBounds) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function getRenderableBounds(scene: THREE.Scene) {
+  const box = new THREE.Box3();
+  const objectBox = new THREE.Box3();
+  scene.updateMatrixWorld(true);
+
+  scene.traverse((object) => {
+    if (!object.visible || isBoundsExcluded(object)) return;
+    const mesh = object as THREE.Mesh;
+    const geometry = mesh.geometry;
+    if (!geometry) return;
+
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    if (!geometry.boundingBox || geometry.boundingBox.isEmpty()) return;
+
+    objectBox.copy(geometry.boundingBox).applyMatrix4(object.matrixWorld);
+    if (!objectBox.isEmpty()) box.union(objectBox);
+  });
+
+  return box;
+}
 
 function SceneActions() {
   const { gl, scene, camera } = useThree();
   const controlsRef = useRef<OrbitControlsImpl>(null);
 
+  const frameScene = useCallback(
+    (direction: keyof typeof VIEW_DIRECTIONS) => {
+      const box = getRenderableBounds(scene);
+      if (box.isEmpty()) {
+        frameCamera(
+          camera,
+          controlsRef.current,
+          new THREE.Vector3(),
+          new THREE.Vector3(100, 100, 100),
+          VIEW_DIRECTIONS[direction]
+        );
+        return;
+      }
+
+      frameCamera(
+        camera,
+        controlsRef.current,
+        box.getCenter(new THREE.Vector3()),
+        box.getSize(new THREE.Vector3()),
+        VIEW_DIRECTIONS[direction]
+      );
+    },
+    [camera, scene]
+  );
+
   useEffect(() => {
     useViewportStore.getState().setActions({
-      resetView: () => {
-        camera.position.set(80, 60, 80);
-        camera.lookAt(0, 0, 0);
-        controlsRef.current?.reset();
-      },
-      fitModel: () => {
-        const box = new THREE.Box3().setFromObject(scene);
-        if (box.isEmpty()) return;
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const distance = maxDim * 2.5;
-        camera.position.set(
-          center.x + distance * 0.7,
-          center.y + distance * 0.5,
-          center.z + distance * 0.7
-        );
-        camera.lookAt(center);
-        controlsRef.current?.target.copy(center);
-        controlsRef.current?.update();
-      },
+      resetView: () => frameScene("iso"),
+      fitModel: () => frameScene("iso"),
       screenshot: () => {
         gl.render(scene, camera);
         const dataUrl = gl.domElement.toDataURL("image/png");
@@ -41,30 +88,9 @@ function SceneActions() {
         link.href = dataUrl;
         link.click();
       },
-      setViewAngle: (direction) => {
-        const box = new THREE.Box3().setFromObject(scene);
-        const center = box.isEmpty() ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
-        const size = box.isEmpty() ? new THREE.Vector3(100, 100, 100) : box.getSize(new THREE.Vector3());
-        const dist = Math.max(size.x, size.y, size.z) * 2;
-
-        const positions: Record<string, [number, number, number]> = {
-          front: [0, 0, dist],
-          back: [0, 0, -dist],
-          left: [-dist, 0, 0],
-          right: [dist, 0, 0],
-          top: [0, dist, 0.01],
-          bottom: [0, -dist, 0.01],
-          iso: [dist * 0.7, dist * 0.5, dist * 0.7],
-        };
-
-        const [x, y, z] = positions[direction] ?? positions.iso!;
-        camera.position.set(center.x + x, center.y + y, center.z + z);
-        camera.lookAt(center);
-        controlsRef.current?.target.copy(center);
-        controlsRef.current?.update();
-      },
+      setViewAngle: (direction) => frameScene(direction),
     });
-  }, [gl, scene, camera]);
+  }, [gl, scene, camera, frameScene]);
 
   return (
     <OrbitControls
@@ -72,8 +98,8 @@ function SceneActions() {
       makeDefault
       enableDamping
       dampingFactor={0.05}
-      minDistance={20}
-      maxDistance={500}
+      minDistance={1e-7}
+      maxDistance={1e9}
     />
   );
 }
@@ -92,6 +118,7 @@ export function Canvas3D() {
       <ModelViewer />
 
       <Grid
+        userData={{ excludeFromBounds: true }}
         args={[200, 200]}
         cellSize={10}
         cellThickness={0.5}

@@ -3,7 +3,7 @@ from typing import AsyncIterator
 import openai
 import httpx
 
-from .base import AbstractAIProvider, AIRequest, StreamChunk
+from .base import AbstractAIProvider, AIRequest, StreamChunk, split_image_data
 
 
 class GatewayProvider(AbstractAIProvider):
@@ -69,10 +69,11 @@ class GatewayProvider(AbstractAIProvider):
         for msg in request.messages:
             content = []
             if msg.get("images"):
-                for img_b64 in msg["images"]:
+                for image in msg["images"]:
+                    mime, data = split_image_data(image)
                     content.append({
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{img_b64}"},
+                        "image_url": {"url": f"data:{mime};base64,{data}"},
                     })
             content.append({"type": "text", "text": msg["content"]})
             messages.append({"role": msg["role"], "content": content})
