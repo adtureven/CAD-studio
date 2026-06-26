@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { X, Eye, EyeOff, Loader2 } from "lucide-react";
+import { X, Eye, EyeOff, Loader2, Palette, RotateCcw } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
+import { DEFAULT_MODEL_APPEARANCE, useAppearanceStore } from "@/stores/appearanceStore";
 
 interface SettingsData {
   gateway_url: string;
@@ -12,6 +13,15 @@ interface SettingsData {
 
 export function SettingsModal() {
   const { settingsOpen, toggleSettings } = useUIStore();
+  const {
+    modelColor,
+    roughness,
+    metalness,
+    setModelColor,
+    setRoughness,
+    setMetalness,
+    resetAppearance,
+  } = useAppearanceStore();
   const [data, setData] = useState<SettingsData>({
     gateway_url: "",
     gateway_api_key: "",
@@ -61,7 +71,7 @@ export function SettingsModal() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={toggleSettings} />
-      <div className="relative bg-surface rounded-xl shadow-xl border border-border w-full max-w-md mx-4">
+      <div className="relative bg-surface rounded-xl shadow-xl border border-border w-full max-w-md mx-4 max-h-[88vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-lg font-serif font-semibold text-text-primary">Settings</h2>
           <button
@@ -72,7 +82,55 @@ export function SettingsModal() {
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-5 overflow-y-auto">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-1.5">
+                <Palette className="w-3.5 h-3.5" />
+                Model Appearance
+              </h3>
+              <button
+                type="button"
+                onClick={resetAppearance}
+                className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-cream-dark transition-colors"
+                title="Reset appearance"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-sm text-text-primary mb-1">Model Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={modelColor}
+                  onChange={(e) => setModelColor(e.target.value)}
+                  className="h-9 w-12 rounded-md border border-border bg-cream p-1"
+                  title="Model color"
+                />
+                <input
+                  type="text"
+                  value={modelColor}
+                  onChange={(e) => setModelColor(e.target.value)}
+                  placeholder={DEFAULT_MODEL_APPEARANCE.modelColor}
+                  className="flex-1 px-3 py-2 text-sm border border-border rounded-lg bg-cream focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono"
+                />
+              </div>
+            </div>
+
+            <MaterialSlider
+              label="Roughness"
+              value={roughness}
+              onChange={setRoughness}
+            />
+            <MaterialSlider
+              label="Metalness"
+              value={metalness}
+              onChange={setMetalness}
+            />
+          </div>
+
           <div className="space-y-3">
             <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
               AI API Configuration
@@ -171,6 +229,36 @@ export function SettingsModal() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MaterialSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="text-sm text-text-primary">{label}</label>
+        <span className="text-xs text-text-secondary font-mono">
+          {value.toFixed(2)}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-1.5 bg-cream-dark rounded-full appearance-none cursor-pointer accent-primary"
+      />
     </div>
   );
 }

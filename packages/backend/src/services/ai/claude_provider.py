@@ -2,7 +2,7 @@ from typing import AsyncIterator
 
 import anthropic
 
-from .base import AbstractAIProvider, AIRequest, StreamChunk
+from .base import AbstractAIProvider, AIRequest, StreamChunk, split_image_data
 
 
 class ClaudeProvider(AbstractAIProvider):
@@ -74,13 +74,14 @@ class ClaudeProvider(AbstractAIProvider):
         for msg in request.messages:
             content = []
             if msg.get("images"):
-                for img_b64 in msg["images"]:
+                for image in msg["images"]:
+                    mime, data = split_image_data(image)
                     content.append({
                         "type": "image",
                         "source": {
                             "type": "base64",
-                            "media_type": "image/png",
-                            "data": img_b64,
+                            "media_type": mime,
+                            "data": data,
                         },
                     })
             content.append({"type": "text", "text": msg["content"]})

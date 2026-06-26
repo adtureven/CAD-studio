@@ -4,15 +4,18 @@ import { Html } from "@react-three/drei";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useViewportStore } from "@/stores/viewportStore";
 import { useParameterStore } from "@/stores/parameterStore";
+import { useAppearanceStore } from "@/stores/appearanceStore";
 import { loadStepFromUrl, type StepLoadResult } from "@/services/stepLoader";
+import { configureCameraClip, configureOrbitBounds, fitDistance } from "@/utils/cameraFraming";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
-const MODEL_MATERIAL_PROPS = {
-  color: "#5C7C5E",
-  roughness: 0.35,
-  metalness: 0.1,
-};
+function useModelMaterialProps() {
+  const color = useAppearanceStore((s) => s.modelColor);
+  const roughness = useAppearanceStore((s) => s.roughness);
+  const metalness = useAppearanceStore((s) => s.metalness);
+  return useMemo(() => ({ color, roughness, metalness }), [color, roughness, metalness]);
+}
 
 export function ModelViewer() {
   const modelUrl = useViewportStore((s) => s.modelUrl);
@@ -61,6 +64,7 @@ function PreviewModel({ modelId }: { modelId: string }) {
 }
 
 function BoxPreview({ params }: { params: Record<string, number> }) {
+  const materialProps = useModelMaterialProps();
   const w = params["width"] ?? 50;
   const h = params["height"] ?? 30;
   const d = params["depth"] ?? 40;
@@ -87,12 +91,13 @@ function BoxPreview({ params }: { params: Record<string, number> }) {
 
   return (
     <mesh geometry={geometry} position={[0, h / 2, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow>
-      <meshStandardMaterial {...MODEL_MATERIAL_PROPS} />
+      <meshStandardMaterial {...materialProps} />
     </mesh>
   );
 }
 
 function BracketPreview({ params }: { params: Record<string, number> }) {
+  const materialProps = useModelMaterialProps();
   const length = params["length"] ?? 80;
   const width = params["width"] ?? 40;
   const thickness = params["thickness"] ?? 5;
@@ -106,12 +111,12 @@ function BracketPreview({ params }: { params: Record<string, number> }) {
     <group position={[0, thickness / 2, 0]}>
       {/* Base plate */}
       <mesh geometry={baseGeo} castShadow>
-        <meshStandardMaterial {...MODEL_MATERIAL_PROPS} />
+        <meshStandardMaterial {...materialProps} />
       </mesh>
 
       {/* Vertical wall */}
       <mesh geometry={wallGeo} position={[-length / 2 + thickness / 2, bendHeight / 2, 0]} castShadow>
-        <meshStandardMaterial {...MODEL_MATERIAL_PROPS} />
+        <meshStandardMaterial {...materialProps} />
       </mesh>
 
       {/* Holes */}
@@ -130,6 +135,7 @@ function BracketPreview({ params }: { params: Record<string, number> }) {
 }
 
 function GearPreview({ params }: { params: Record<string, number> }) {
+  const materialProps = useModelMaterialProps();
   const numTeeth = params["num_teeth"] ?? 20;
   const module_ = params["module"] ?? 2.5;
   const thickness = params["thickness"] ?? 10;
@@ -173,12 +179,13 @@ function GearPreview({ params }: { params: Record<string, number> }) {
 
   return (
     <mesh geometry={geometry} position={[0, thickness / 2, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow>
-      <meshStandardMaterial {...MODEL_MATERIAL_PROPS} />
+      <meshStandardMaterial {...materialProps} />
     </mesh>
   );
 }
 
 function EnclosurePreview({ params }: { params: Record<string, number> }) {
+  const materialProps = useModelMaterialProps();
   const width = params["width"] ?? 100;
   const depth = params["depth"] ?? 60;
   const height = params["height"] ?? 30;
@@ -219,7 +226,7 @@ function EnclosurePreview({ params }: { params: Record<string, number> }) {
 
   return (
     <mesh geometry={outerGeo} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} castShadow>
-      <meshStandardMaterial {...MODEL_MATERIAL_PROPS} />
+      <meshStandardMaterial {...materialProps} />
     </mesh>
   );
 }
@@ -306,6 +313,7 @@ function StepModel({ url }: { url: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const { camera } = useThree();
   const controls = useThree((s) => (s as unknown as { controls?: OrbitControlsImpl }).controls);
+  const materialProps = useModelMaterialProps();
   const [stepData, setStepData] = useState<StepLoadResult | null>(null);
   const [error, setError] = useState(false);
   const [hovered, setHovered] = useState<HoveredFaceInfo | null>(null);
@@ -359,16 +367,15 @@ function StepModel({ url }: { url: string }) {
 
     groupRef.current.position.set(-center.x, -center.y, -center.z);
 
-    const distance = Math.max(maxDim * 2.5, 20);
+    const distance = fitDistance(camera, maxDim);
     (camera as THREE.PerspectiveCamera).position.set(
       distance * 0.7,
       distance * 0.5,
       distance * 0.7
     );
-    (camera as THREE.PerspectiveCamera).near = Math.max(distance / 1000, 0.1);
-    (camera as THREE.PerspectiveCamera).far = distance * 20;
-    (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+    configureCameraClip(camera, maxDim, distance);
     camera.lookAt(0, 0, 0);
+    configureOrbitBounds(controls, maxDim);
     controls?.target.set(0, 0, 0);
     controls?.update();
   }, [stepData, camera, controls]);
@@ -434,9 +441,7 @@ function StepModel({ url }: { url: string }) {
           onPointerMove={(e) => handlePointerMove(e, i)}
         >
           <meshStandardMaterial
-            color={stepData.materials[i]?.color ?? "#5C7C5E"}
-            roughness={0.35}
-            metalness={0.1}
+            {...materialProps}
             side={THREE.DoubleSide}
           />
         </mesh>
@@ -481,6 +486,8 @@ function StepModel({ url }: { url: string }) {
 function LoadedModel({ url }: { url: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const { camera } = useThree();
+  const controls = useThree((s) => (s as unknown as { controls?: OrbitControlsImpl }).controls);
+  const materialProps = useModelMaterialProps();
 
   let gltf: { scene: THREE.Group } | null = null;
   try {
@@ -498,40 +505,52 @@ function LoadedModel({ url }: { url: string }) {
     gltf.scene.position.sub(center);
 
     const maxDim = Math.max(size.x, size.y, size.z);
-    const distance = maxDim * 2.5;
+    const distance = fitDistance(camera, maxDim);
     (camera as THREE.PerspectiveCamera).position.set(
       distance * 0.7,
       distance * 0.5,
       distance * 0.7
     );
+    configureCameraClip(camera, maxDim, distance);
     camera.lookAt(0, 0, 0);
-  }, [gltf, camera]);
+    configureOrbitBounds(controls, maxDim);
+    controls?.target.set(0, 0, 0);
+    controls?.update();
+  }, [gltf, camera, controls]);
+
+  useEffect(() => {
+    if (!gltf) return;
+    const material = new THREE.MeshStandardMaterial(materialProps);
+    gltf.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.material = material;
+    });
+    return () => material.dispose();
+  }, [gltf, materialProps]);
 
   if (!gltf) return null;
 
   return (
     <group ref={groupRef}>
-      <primitive object={gltf.scene}>
-        <meshStandardMaterial {...MODEL_MATERIAL_PROPS} />
-      </primitive>
+      <primitive object={gltf.scene} />
     </group>
   );
 }
 
 function DefaultCube() {
+  const materialProps = useModelMaterialProps();
   return (
     <mesh position={[0, 15, 0]} castShadow>
       <boxGeometry args={[30, 30, 30]} />
       <meshStandardMaterial
-        color="#5C7C5E"
-        roughness={0.4}
-        metalness={0.1}
+        {...materialProps}
         transparent
         opacity={0.3}
       />
       <lineSegments>
         <edgesGeometry args={[new THREE.BoxGeometry(30, 30, 30)]} />
-        <lineBasicMaterial color="#5C7C5E" opacity={0.5} transparent />
+        <lineBasicMaterial color={materialProps.color} opacity={0.5} transparent />
       </lineSegments>
     </mesh>
   );
