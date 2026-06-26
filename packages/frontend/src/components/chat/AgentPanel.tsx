@@ -12,7 +12,6 @@ import {
   Loader2,
   Send,
   Terminal,
-  Wrench,
   X,
 } from "lucide-react";
 import { useChatStore } from "@/stores/chatStore";
@@ -27,13 +26,11 @@ import { MarkdownContent } from "./MarkdownContent";
 
 type AgentEntry = {
   id: string;
-  role: "user" | "agent" | "tool" | "system" | "error" | "thinking";
+  role: "user" | "agent" | "system" | "error" | "thinking";
   title: string;
   content?: string;
   images?: string[];
   status?: "running" | "success" | "error";
-  toolInput?: string;
-  toolOutput?: string;
   streaming?: boolean;
 };
 
@@ -52,12 +49,6 @@ type HandlerCtx = {
   setRunStatus: Dispatch<SetStateAction<AgentRunStatus | null>>;
   streamingIdRef: RefObject<string | null>;
   thinkingIdRef: RefObject<string | null>;
-};
-
-const TOOL_LABELS: Record<string, string> = {
-  read_cad: "读取 cadquery.py",
-  write_cad: "写入 cadquery.py",
-  render_cad: "渲染校验",
 };
 
 export function AgentPanel() {
@@ -214,7 +205,7 @@ export function AgentPanel() {
     setInput("");
     setImages([]);
     setIsRunning(true);
-    setRunStatus(makeRunStatus("启动 Agent", "正在创建隔离的 cadquery.py 会话"));
+    setRunStatus(makeRunStatus("Agent 启动中", "正在准备 cadquery.py 会话"));
     wsRef.current.send(
       JSON.stringify({
         type: "agent_request",
@@ -387,11 +378,11 @@ function handleAgentEvent(
       return;
 
     case "agent_start":
-      updateRunStatus(setRunStatus, "启动 Agent", "请求已发送至 Mimo");
+      updateRunStatus(setRunStatus, "Agent 启动中", "正在准备工作环境");
       return;
 
     case "agent_status":
-      updateRunStatus(setRunStatus, String(payload.label ?? "处理中"));
+      updateRunStatus(setRunStatus, String(payload.label ?? "Agent 工作中"));
       return;
 
     case "agent_thinking_delta": {
@@ -439,35 +430,11 @@ function handleAgentEvent(
     case "agent_tool_use": {
       finalizeStreaming(streamingIdRef, setEntries);
       finalizeThinking(thinkingIdRef, setEntries);
-      const toolId = String(payload.id ?? crypto.randomUUID());
-      const name = String(payload.name ?? "tool");
-      const input = asRecord(payload.input);
-      updateRunStatus(setRunStatus, `调用工具：${TOOL_LABELS[name] ?? name}`);
-      const { detail } = formatToolInput(name, input);
-      setEntries((prev) => [
-        ...prev,
-        {
-          id: `tool-${toolId}`,
-          role: "tool",
-          title: TOOL_LABELS[name] ?? `调用 ${name}`,
-          status: "running",
-          toolInput: detail,
-        },
-      ]);
+      updateRunStatus(setRunStatus, "Agent 工作中");
       return;
     }
 
     case "agent_tool_result": {
-      const toolId = String(payload.id ?? "");
-      const isError = Boolean(payload.is_error);
-      const output = truncate(String(payload.output ?? ""));
-      setEntries((prev) =>
-        prev.map((e) =>
-          e.id === `tool-${toolId}`
-            ? { ...e, status: isError ? "error" : "success", toolOutput: output }
-            : e
-        )
-      );
       return;
     }
 
@@ -478,7 +445,7 @@ function handleAgentEvent(
     }
 
     case "agent_cad_executing": {
-      updateRunStatus(setRunStatus, "渲染 cadquery.py", "正在执行 CadQuery");
+      updateRunStatus(setRunStatus, "Agent 渲染中", "正在执行 CadQuery");
       useParameterStore.getState().setExecuting(true);
       useViewportStore.getState().setLoading(true);
       return;
@@ -522,15 +489,15 @@ function handleAgentEvent(
       const maxAttempts = Number(payload.max_attempts ?? attempt);
       updateRunStatus(
         setRunStatus,
-        `自动修复中（${attempt}/${maxAttempts}）`,
-        "正在把渲染错误反馈给 Agent"
+        `Agent 修复中（${attempt}/${maxAttempts}）`,
+        "根据渲染错误重新调整模型"
       );
       setEntries((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "system",
-          title: `自动修复（${attempt}/${maxAttempts}）`,
+          title: `Agent 自动修复（${attempt}/${maxAttempts}）`,
           content: String(payload.error ?? ""),
         },
       ]);
@@ -626,7 +593,7 @@ function finalizeThinkingIfMissing(
   thinkingIdRef.current = id;
   setEntries((prev) => [
     ...prev,
-    { id, role: "thinking", title: "思考过程", content: "", streaming: true },
+    { id, role: "thinking", title: "Agent 思考中", content: "", streaming: true },
   ]);
 }
 
@@ -649,7 +616,7 @@ function finalizeThinking(
 
 function settleActiveEntries(
   setEntries: Dispatch<SetStateAction<AgentEntry[]>>,
-  toolStatus: "success" | "error"
+  _toolStatus: "success" | "error"
 ) {
   setEntries((prev) =>
     prev
@@ -659,9 +626,6 @@ function settleActiveEntries(
         return Boolean(entry.content?.trim());
       })
       .map((entry) => {
-        if (entry.role === "tool" && entry.status === "running") {
-          return { ...entry, status: toolStatus };
-        }
         if (entry.streaming) {
           return { ...entry, streaming: false };
         }
@@ -687,39 +651,6 @@ function updateRunStatus(
     startedAt: prev?.startedAt ?? now,
     updatedAt: now,
   }));
-}
-
-function formatToolInput(name: string, input: Record<string, unknown>): { detail?: string } {
-  if (name === "write_cad" && typeof input.content === "string") {
-    return { detail: truncate(input.content) };
-  }
-  if (Object.keys(input).length === 0) {
-    return { detail: undefined };
-  }
-  return { detail: truncate(compactJson(input)) };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function compactJson(value: unknown) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function sanitizeSessionPaths(value: string) {
-  return value
-    .replace(/\S*\/agent_sessions\/[^\s/]+\/cadquery\.py/g, "cadquery.py")
-    .replace(/\S*\/agent_sessions\/[^\s]+/g, "会话目录");
-}
-
-function truncate(value: string) {
-  const sanitized = sanitizeSessionPaths(value);
-  return sanitized.length > 1600 ? `${sanitized.slice(0, 1600)}\n...` : sanitized;
 }
 
 function AgentRunStatusView({
@@ -767,10 +698,6 @@ const AgentEntryView = memo(function AgentEntryView({ entry }: { entry: AgentEnt
         </div>
       </div>
     );
-  }
-
-  if (entry.role === "tool") {
-    return <ToolEntryView entry={entry} />;
   }
 
   if (entry.role === "thinking") {
@@ -823,68 +750,6 @@ const AgentEntryView = memo(function AgentEntryView({ entry }: { entry: AgentEnt
     </div>
   );
 });
-
-function ToolEntryView({ entry }: { entry: AgentEntry }) {
-  const [open, setOpen] = useState(false);
-  const hasDetail = Boolean(entry.toolInput || entry.toolOutput);
-
-  const tone =
-    entry.status === "error"
-      ? "text-error bg-red-50 border-red-100"
-      : entry.status === "success"
-        ? "text-primary bg-primary-light border-primary/15"
-        : "text-text-secondary bg-cream border-border";
-
-  return (
-    <div className="flex gap-2.5 py-1.5">
-      <div className={`mt-0.5 w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 ${tone}`}>
-        {entry.status === "success" ? (
-          <CheckCircle2 className="w-3.5 h-3.5" />
-        ) : entry.status === "error" ? (
-          <AlertTriangle className="w-3.5 h-3.5" />
-        ) : (
-          <Wrench className="w-3.5 h-3.5" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <button
-          type="button"
-          onClick={() => hasDetail && setOpen((v) => !v)}
-          className={`flex items-center gap-1.5 text-[11px] font-medium text-text-secondary ${
-            hasDetail ? "cursor-pointer hover:text-text-primary" : "cursor-default"
-          }`}
-        >
-          {hasDetail &&
-            (open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />)}
-          <span className="truncate">{entry.title}</span>
-          {entry.status === "running" && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
-        </button>
-        {open && entry.toolInput && (
-          <div className="mt-1">
-            <div className="text-[10px] uppercase tracking-wide text-text-secondary/60 mb-0.5">输入</div>
-            <pre className="rounded-md border border-border bg-cream px-2.5 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">
-              {entry.toolInput}
-            </pre>
-          </div>
-        )}
-        {open && entry.toolOutput && (
-          <div className="mt-1">
-            <div className="text-[10px] uppercase tracking-wide text-text-secondary/60 mb-0.5">输出</div>
-            <pre
-              className={`rounded-md border px-2.5 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words overflow-x-auto ${
-                entry.status === "error"
-                  ? "text-error bg-red-50 border-red-100"
-                  : "text-text-secondary bg-cream border-border"
-              }`}
-            >
-              {entry.toolOutput}
-            </pre>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function ThinkingEntryView({ entry }: { entry: AgentEntry }) {
   const [open, setOpen] = useState(true);
