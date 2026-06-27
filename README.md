@@ -1,280 +1,320 @@
 # CAD AI Studio
 
-AI-powered parametric 3D modeling system. Describe a shape in natural language, get precise CadQuery geometry rendered in the browser.
+AI 驱动的参数化 3D 建模工具：用自然语言描述零件，由 LLM 生成 CadQuery 代码，后端执行后导出 STEP，前端在浏览器里直接渲染。
 
 ![Stack](https://img.shields.io/badge/React_19-TypeScript-blue) ![Stack](https://img.shields.io/badge/FastAPI-CadQuery-green) ![Stack](https://img.shields.io/badge/Three.js-STEP_Rendering-orange)
 
-## Features
+---
 
-- **AI Chat** - Describe a 3D model in text; AI generates parametric CadQuery code and renders it.
-- **Code Agent** - Agent mode runs opencode as a local headless server against an isolated per-conversation `cadquery.py` file, using an OpenAI-compatible gateway.
-- **Agent Image Input** - Agent prompts can include uploaded reference images. The app forwards them to opencode as input-only file parts.
-- **CAD Execution Feedback** - Agent-generated CadQuery is executed by the backend; failures are fed back into the same agent session for automatic repair.
-- **CAD Skill Quality Gates** - The bundled `cadquery-studio` opencode skill enforces requirement coverage, parameter safety, geometry stability, and render-based repair.
-- **Collapsed Long Output** - Long chat, Agent, tool, and thinking outputs are previewed by default and can be expanded on demand.
-- **STEP Rendering** - Industrial-grade B-Rep geometry via OpenCascade, parsed client-side with `occt-import-js` (WASM).
-- **Face Hover Highlight** - Hover model faces to see boundary edges and face info.
-- **Parameter Editing** - Sliders and inputs tweak model dimensions in real time.
-- **Code Editor** - View, edit, and execute CadQuery code directly (`Ctrl+Enter`).
-- **View Controls** - Quick direction buttons: Front/Back/Left/Right/Top/Bottom/Iso.
-- **Model History** - Generated models appear in the sidebar for quick access.
-- **Runtime Settings** - Configure API URL, key, and models from the UI.
-- **Export** - Download models as STEP files; screenshot viewport as PNG.
+## 功能概览
 
-## Architecture
+- **AI 对话建模（Chat 模式）**：自然语言 → CadQuery 代码 → STEP → 浏览器渲染。
+- **Agent 编码模式**：基于 [opencode](https://opencode.ai) 本地 headless server，每个对话拥有独立的 `cadquery.py`，模型只允许编辑该文件。
+- **图纸/草图输入**：Agent 可接收上传图片，转发给 opencode 作为输入用 file part。
+- **执行反馈闭环**：CadQuery 失败时把错误回喂给同一个 Agent 会话，最多自动修复 2 轮。
+- **质量门禁 Skill**：仓库自带 `cadquery-studio` / `cad-vision-brief` 两个 opencode skill，强制做需求覆盖、参数安全、几何稳定性检查。
+- **STEP 渲染**：服务端 OpenCascade 导出 → 前端 `occt-import-js`（WASM）解析 → Three.js 渲染。
+- **交互特性**：面 hover 高亮、参数拖动实时改尺寸、内置代码编辑器（`Ctrl+Enter` 执行）、视角快捷键、模型历史、运行时改 API 配置、导出 STEP / 截图。
 
-Normal chat flow:
+---
+
+## 架构
+
+普通对话流：
 
 ```text
-User prompt -> AI chat provider -> CadQuery Python code
-    -> Backend executes in subprocess -> STEP file exported
-    -> Frontend fetches STEP -> occt-import-js parses -> Three.js renders
+用户输入 → Chat Provider → CadQuery 代码
+       → 后端子进程执行 → 导出 STEP
+       → 前端拉取 STEP → occt-import-js 解析 → Three.js 渲染
 ```
 
-Agent flow:
+Agent 流：
 
 ```text
-User prompt -> /api/agent/ws -> backend proxy -> opencode headless server
-    -> OpenAI-compatible gateway
-    -> isolated generated/agent_sessions/<conversation>/cadquery.py
-    -> Backend executes cadquery.py -> success renders STEP
-    -> failure is sent back into the agent loop for repair, then re-executed
+用户输入 → /api/agent/ws → 后端代理 → opencode headless server
+       → OpenAI 兼容 Gateway
+       → generated/agent_sessions/<conversation>/cadquery.py
+       → 后端执行该文件 → 成功则渲染 STEP
+       → 失败把错误回喂给同一 opencode session 自动修复
 ```
 
-The Agent directory is intentionally separate from this repository's source tree. In opencode mode, the agent is permitted to edit only the session `cadquery.py` file.
+opencode 的工作目录与本仓库源码隔离；通过权限配置只允许编辑 `**/cadquery.py`，禁用 shell / web fetch。
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|-------|------------|
-| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4 |
-| 3D | Three.js via `@react-three/fiber` + drei, `occt-import-js` (WASM) |
-| State | Zustand |
-| Backend | Python 3.12+, FastAPI, WebSocket |
-| CAD Kernel | CadQuery 2.7 / OpenCascade |
-| AI Chat | OpenAI-compatible gateway |
-| Code Agent | opencode headless server with OpenAI-compatible provider config |
+## 技术栈
 
-## Quick Start
+| 层 | 技术 |
+|---|---|
+| 前端 | React 19、TypeScript、Vite、Tailwind CSS 4 |
+| 3D | Three.js（`@react-three/fiber` + drei）、`occt-import-js` (WASM) |
+| 状态管理 | Zustand |
+| 后端 | Python 3.12+、FastAPI、WebSocket |
+| CAD 内核 | CadQuery 2.7 / OpenCascade |
+| AI Chat | OpenAI 兼容 Gateway |
+| Code Agent | opencode headless server + OpenAI 兼容 provider |
 
-### Prerequisites
+---
 
-- **Node.js** 20+
-- **Python** 3.12+ (3.13 is also OK if CadQuery/OCP installs cleanly)
-- **CadQuery** with OpenCascade/OCP
-- An **OpenAI-compatible API key** for normal chat and Agent mode
+## 部署：本地开发模式
 
-Agent mode uses opencode as a local headless server. No Claude Code CLI is required.
+整个系统会同时跑 3 个本地进程：**Backend (FastAPI)**、**Frontend (Vite)**、**opencode serve**。
 
-### 1. Clone
+### 1. 前置依赖
+
+| 工具 | 版本 | 备注 |
+|---|---|---|
+| Node.js | 20+ | 前端构建与 opencode 安装 |
+| Python | 3.12+ | 后端 |
+| Conda | 任意 | 安装 CadQuery 最稳的方式 |
+| opencode | 最新 | Agent 模式必需 |
+| LLM API Key | — | OpenAI 兼容（项目默认对接 mimo Gateway，可换 DeepSeek / OpenAI / Claude 兼容路由） |
+
+安装 opencode（任选其一）：
 
 ```bash
-git clone <repo-url> cad
-cd cad
+# 推荐
+curl -fsSL https://opencode.ai/install | bash
+
+# macOS Homebrew
+brew install sst/tap/opencode
+
+# 或 npm
+npm install -g opencode-ai@latest
 ```
 
-### 2. Backend Setup
+校验：
 
 ```bash
-cd packages/backend
+opencode --version
+```
 
-# Option A: conda, usually the easiest path for CadQuery
+### 2. 克隆仓库
+
+```bash
+git clone <repo-url> CAD-studio
+cd CAD-studio
+```
+
+### 3. 后端：CadQuery + Python 依赖
+
+CadQuery 依赖 OpenCascade，强烈推荐 conda 安装：
+
+```bash
 conda create -n cad python=3.12 -y
 conda activate cad
 conda install -c cadquery cadquery=2.7 -y
-pip install fastapi "uvicorn[standard]" websockets pydantic pydantic-settings \
-    httpx python-multipart aiosqlite sqlalchemy anthropic
 
-# Option B: venv + pip
-python3 -m venv .venv
-source .venv/bin/activate
-pip install fastapi "uvicorn[standard]" websockets pydantic pydantic-settings \
-    httpx python-multipart aiosqlite sqlalchemy anthropic cadquery
+cd packages/backend
+pip install -e .
+cd ../..
 ```
 
-### 3. Configure API
+也可以纯 pip（CadQuery 在某些平台编译会失败，仅供参考）：
 
 ```bash
-cp .env.example packages/backend/.env
+cd packages/backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pip install cadquery
+cd ../..
 ```
 
-Edit `packages/backend/.env`.
-
-For normal chat through an OpenAI-compatible gateway:
-
-```env
-GATEWAY_URL=https://api.openai.com/v1
-GATEWAY_API_KEY=sk-your-key-here
-GATEWAY_MODELS=gpt-4o
-```
-
-For Agent mode, opencode also uses an OpenAI-compatible gateway. By default it
-uses `GATEWAY_URL`, then `AGENT_BASE_URL`, then
-`https://token-plan-sgp.xiaomimimo.com/v1`. Set the first model in
-`GATEWAY_MODELS`, or set `DEFAULT_MODEL` explicitly.
-
-```env
-GATEWAY_URL=https://token-plan-sgp.xiaomimimo.com/v1
-GATEWAY_MODELS=mimo-v2.5-pro
-DEFAULT_MODEL=mimo-v2.5-pro
-```
-
-Provide the key using either variable:
-
-```env
-ANTHROPIC_API_KEY=your-mimo-key
-# or
-GATEWAY_API_KEY=your-mimo-key
-```
-
-Agent mode uses `ANTHROPIC_API_KEY` first, then falls back to `GATEWAY_API_KEY`.
-
-### 4. Frontend Setup
+### 4. 前端依赖
 
 ```bash
 cd packages/frontend
 npm install
+cd ../..
 ```
 
-### 5. Run
-
-Open two terminals for the base app:
+### 5. 配置环境变量与模型清单
 
 ```bash
-# Terminal 1: Backend, port 8000
+cp .env.example .env
+cp models.example.json models.json
+```
+
+#### 5.1 `.env`
+
+打开根目录的 `.env`，至少改这两类：
+
+```env
+# Agent 模式连接到本地 opencode serve
+OPENCODE_ENABLED=true
+OPENCODE_BASE_URL=http://127.0.0.1:4096
+# 本机不需要 host 路径翻译，留空即可（仅 Docker 跨进程时需要）
+OPENCODE_HOST_ROOT=
+
+# Backend
+BACKEND_HOST=127.0.0.1
+BACKEND_PORT=8000
+DATABASE_URL=sqlite+aiosqlite:///./cad_studio.db
+
+# Frontend dev server 通过 Vite 反代到后端，下面两项一般不用改
+VITE_API_URL=http://127.0.0.1:8000
+VITE_WS_URL=ws://127.0.0.1:8000
+```
+
+> 不要使用 `0.0.0.0` 作为浏览器访问地址，浏览器对它的 WebSocket 行为不一致；用 `127.0.0.1`。
+
+#### 5.2 `models.json`（推荐）
+
+每个模型一条记录，独立的 `base_url` 与 `api_key`，前端会把全部模型都列到下拉里，opencode 也会按它们生成 provider：
+
+```json
+{
+  "default": "deepseek-v4-pro",
+  "models": [
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "sk-your-deepseek-key",
+      "vision": true
+    }
+  ]
+}
+```
+
+如果不写 `models.json`，会回退到 `.env` 里的 `GATEWAY_URL` / `GATEWAY_API_KEY` / `GATEWAY_MODELS` 这套单 provider 兜底配置。
+
+### 6. 启动三件套
+
+打开三个终端：
+
+**Terminal 1 — 后端（端口 8000）**
+
+```bash
 cd packages/backend
-# --reload-dir src 很重要：仅监视源码目录，避免 agent 写 generated/ 产物时误触发重启而断开 WebSocket
+conda activate cad        # 或 source .venv/bin/activate
 uvicorn src.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir src
 ```
 
+> `--reload-dir src` 必须保留：避免 agent 写 `generated/` 产物时误触发热重启把 WebSocket 打断。
+
+**Terminal 2 — opencode 服务（端口 4096）**
+
 ```bash
-# Terminal 2: Frontend, port 5173
+bash scripts/opencode.sh
+```
+
+该脚本会：
+
+1. 找到 opencode 二进制（PATH 优先，回退到 `.tools/bin/opencode`）；
+2. 读取 `.env` 与 `models.json`，调用 [scripts/gen_opencode_config.py](file:///Users/bytedance/code/CAD-studio/scripts/gen_opencode_config.py) 生成 `packages/backend/generated/agent_sessions/opencode.json`；
+3. 用 `OPENCODE_CONFIG` 指向该文件后启动 `opencode serve`。
+
+**Terminal 3 — 前端（端口 5173）**
+
+```bash
 cd packages/frontend
 npm run dev
 ```
 
-For Agent mode, start opencode in a third terminal:
+### 7. 验证联通性
 
 ```bash
-# Terminal 3: opencode server, port 4096
-bash scripts/opencode.sh
+curl http://127.0.0.1:8000/api/health        # 后端
+curl -I http://127.0.0.1:5173/               # 前端
+curl http://127.0.0.1:4096/global/health     # opencode
 ```
 
-Open:
+浏览器打开：
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-Using `127.0.0.1` avoids browser WebSocket ambiguity around `0.0.0.0`.
+进入页面后：
 
-### Docker (alternative)
+- `CAD` 标签：自然语言生成 CAD 模型。
+- `Agent` 标签：调用 opencode，建模过程会有工具调用、修复轮次的实时反馈。
+- 右上角齿轮按钮：运行时切换 API URL / Key / 模型。
 
-```bash
-cp .env.example packages/backend/.env
-# edit packages/backend/.env with your API key
-docker compose up
-```
+---
 
-## Usage
+## 使用速查
 
-| Action | How |
-|--------|-----|
-| Generate model with chat | Use the `CAD` tab and type a model description |
-| Use the code agent | Switch to `Agent`, describe the CAD change, and optionally upload reference images |
-| Continue an Agent session | Keep chatting in the same Agent conversation; it resumes the same agent history and `cadquery.py` |
-| Expand long output | Long content is collapsed by default; click `展开全部` / `收起` |
-| Adjust parameters | Drag sliders in the right panel |
-| Edit code manually | Switch to Code tab, modify, press `Ctrl+Enter` |
-| Change view angle | Click direction buttons or drag to orbit |
-| Highlight face | Hover over model faces |
-| Export STEP | Click Export in the bottom toolbar |
-| Screenshot | Click Screenshot in the bottom toolbar |
-| Configure API | Click the gear icon in the top-right |
+| 操作 | 方法 |
+|---|---|
+| 自然语言生成模型 | `CAD` 标签 → 输入需求 |
+| 调用 Agent | 切到 `Agent` → 输入需求，可附图 |
+| 继续上一轮 Agent | 在同一会话里继续聊，会复用同一 `cadquery.py` 与 opencode session |
+| 展开折叠的长输出 | 点击「展开全部 / 收起」 |
+| 调参 | 右侧 ParameterPanel 拖动滑块 |
+| 手改代码 | 切到 Code 标签，改完 `Ctrl+Enter` 执行 |
+| 切换视角 | 顶部方向按钮或鼠标 orbit |
+| 高亮面 | 鼠标 hover 模型表面 |
+| 导出 STEP | 底部工具栏 Export |
+| 截图 | 底部工具栏 Screenshot |
+| 配置 API | 顶部齿轮图标 |
 
-## Agent Mode Notes
+---
 
-Agent mode is powered by [opencode](https://github.com/anomalyco/opencode), an
-open-source coding agent, running as a local headless server. The backend proxies
-opencode's event stream into the existing `agent_*` WebSocket protocol, so the UI
-is unchanged.
+## Agent 模式细节
 
-### Running opencode
+### 工作机制
 
-1. Install: `npm install -g opencode-ai@latest` (verify with `opencode --version`).
-2. Start the server (host side): `bash scripts/opencode.sh` — it runs
-   `opencode serve` rooted at `packages/backend/generated/agent_sessions`.
-3. `scripts/opencode.sh` writes `opencode.json` to that root, generated from
-   `packages/backend/.env`. The provider points at `OPENCODE_PROVIDER_BASE_URL`,
-   then `GATEWAY_URL`, then `AGENT_BASE_URL`. Permissions allow editing only
-   `**/cadquery.py`, allow the `cadquery-studio` skill, and deny
-   `bash`/`webfetch`, preserving the sandbox.
+- 每个会话在 `packages/backend/generated/agent_sessions/<conversation>/` 下有一个独立目录。
+- 目录里只有一个可编辑文件：`cadquery.py`；opencode 的权限配置（写在 `opencode.json` 里）禁止写其它文件、禁止 shell、禁止 webfetch。
+- 多轮记忆由 opencode session 自己保管，后端只维护 `conversation_id ↔ opencode_session_id` 的映射。
+- CadQuery 执行失败时，后端把报错塞回同一个 opencode session，最多 2 轮自动修复后再渲染。
+- 上传的图片以 `file` part 转发给 opencode，仅作为输入。
 
-Config (`.env`):
+### 关键 `.env` 项
 
-- `OPENCODE_ENABLED` — set `false` to fall back to the legacy in-process loop.
-- `OPENCODE_BASE_URL` — backend-to-opencode server URL. Use
-  `http://127.0.0.1:4096` when the backend runs directly on the host; use
-  `http://host.docker.internal:4096` when the backend runs in Docker.
-- `OPENCODE_PROVIDER_BASE_URL` — optional model gateway override for opencode;
-  leave empty to use `GATEWAY_URL` or `AGENT_BASE_URL`.
-- `OPENCODE_PROVIDER_ID` — provider key written into `opencode.json`, default
-  `cadgw`.
-- `OPENCODE_HOST_ROOT` — host-side absolute path of `agent_sessions`, used to
-  translate container paths to host paths (the directory is bind-mounted).
+| Key | 含义 |
+|---|---|
+| `OPENCODE_ENABLED` | `false` 时回退到旧的 in-process Anthropic 循环（不推荐） |
+| `OPENCODE_BASE_URL` | 后端 → opencode server 的地址。本机一律 `http://127.0.0.1:4096` |
+| `OPENCODE_PROVIDER_BASE_URL` | 可选：覆盖 opencode 用的模型网关地址；留空即继承 `GATEWAY_URL` / `AGENT_BASE_URL` |
+| `OPENCODE_PROVIDER_ID` | 写入 `opencode.json` 的 provider key，默认 `cadgw` |
+| `OPENCODE_HOST_ROOT` | 仅当 backend 在容器、opencode 在宿主机时需要：宿主机侧 `agent_sessions` 的绝对路径 |
 
-### CAD skill
+### Skill 文件
 
-The project includes `.opencode/skills/cadquery-studio/SKILL.md` and
-`.opencode/skills/cadquery-studio/references/quality-gates.md`. The skill tells
-opencode how to create robust CadQuery files for this app:
+仓库内自带两个 opencode skill：
 
-- Build a short CAD brief before coding.
-- Map every requested feature to a parameter, sketch, or solid operation.
-- Keep `params` and optional single-line `# PARAMETER_DEFS:` metadata stable.
-- Guard derived dimensions so parameter edits do not create invalid geometry.
-- Use conservative CadQuery operations, then rely on backend render feedback for
-  repair.
+- [.opencode/skills/cadquery-studio/SKILL.md](file:///Users/bytedance/code/CAD-studio/.opencode/skills/cadquery-studio/SKILL.md) —— CadQuery 建模与修复的硬性约定（参数表、构造策略、质量门禁）。
+- [.opencode/skills/cad-vision-brief/SKILL.md](file:///Users/bytedance/code/CAD-studio/.opencode/skills/cad-vision-brief/SKILL.md) —— 把图纸/截图/草图整理成结构化 CAD brief。
 
-### How it works
+opencode 启动时会自动加载它们，无需额外注册。
 
-- Each conversation gets a directory under `packages/backend/generated/agent_sessions/`.
-- The session file is `cadquery.py`; opencode edits only that file, and the
-  backend renders from it after each turn.
-- Multi-turn memory is owned by the opencode session (mapped per conversation).
-- If CadQuery execution fails, the backend sends the error back to the same
-  opencode session for up to 2 repair turns.
-- Uploaded images are forwarded to opencode as `file` parts for input only.
+---
 
-## API Endpoints
+## API 一览
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| WS | `/api/chat/ws` | Streaming AI chat + CAD execution |
-| WS | `/api/agent/ws` | opencode CAD agent session over WebSocket |
-| POST | `/api/cad/execute` | Execute CadQuery code directly |
-| POST | `/api/cad/update-params` | Re-execute with modified parameters |
-| GET | `/api/chat/models` | List available AI models |
-| GET | `/api/settings` | Get current API configuration |
-| PUT | `/api/settings` | Update API configuration at runtime |
-| GET | `/api/health` | Health check |
-| GET | `/assets/*` | Serve generated STEP/glTF files |
+| Method | Path | 说明 |
+|---|---|---|
+| WS | `/api/chat/ws` | Chat 流式输出 + CAD 执行 |
+| WS | `/api/agent/ws` | opencode 驱动的 Agent 会话 |
+| POST | `/api/cad/execute` | 直接执行 CadQuery 代码 |
+| POST | `/api/cad/update-params` | 用新参数重新执行 |
+| GET | `/api/chat/models` | 列出可用模型 |
+| GET | `/api/settings` | 读取当前 API 配置 |
+| PUT | `/api/settings` | 运行时更新 API 配置（写回 `.env`） |
+| GET | `/api/health` | 健康检查 |
+| GET | `/assets/*` | 提供生成的 STEP / glTF |
 
-## Troubleshooting
+---
+
+## 排错
 
 ### `ModuleNotFoundError: No module named 'pydantic_settings'`
 
-Install backend dependencies inside the active environment:
+后端依赖没装到当前环境：
 
 ```bash
+conda activate cad   # 或 source .venv/bin/activate
 cd packages/backend
-source .venv/bin/activate
-pip install pydantic-settings
+pip install -e .
 ```
 
-### Agent shows `Connecting`
+### Agent 一直在 `Connecting`
 
-Check the backend, frontend, and opencode services:
+逐项检查：
 
 ```bash
 curl http://127.0.0.1:8000/api/health
@@ -282,90 +322,78 @@ curl -I http://127.0.0.1:5173/
 curl http://127.0.0.1:4096/global/health
 ```
 
-Use `http://127.0.0.1:5173/` in the browser and hard-refresh if the frontend bundle is stale.
+任一失败先把对应进程修好；前端打不开就硬刷新。
 
-### Agent stays on `Agent is working`
+### Agent 一直停在 `Agent is working`
 
-If tool calls are appearing, the agent loop is still working. Agent turns can take longer than normal chat because the agent may inspect, edit, execute, receive CAD errors, and repair. If it runs for several minutes with no new tool events, check the backend terminal logs.
+如果 UI 还在持续打印工具调用，说明 Agent 还在跑（建模 + 渲染 + 修复链路本来就比纯聊天慢）。如果几分钟没有任何新事件，看 backend 终端的日志。
 
-### Agent API returns `404 Not Found`
+### Agent 接口返回 404
 
-Check that the model gateway URL is the OpenAI-compatible base URL, for example:
+模型网关地址必须是 OpenAI 兼容的 base URL，例如：
 
 ```env
 GATEWAY_URL=https://token-plan-sgp.xiaomimimo.com/v1
 ```
 
-Do not set the model gateway to an Anthropic message path such as
-`/anthropic/messages`. `OPENCODE_BASE_URL` is only for the local opencode server;
-use `GATEWAY_URL` or `OPENCODE_PROVIDER_BASE_URL` for the model provider.
+不要把它配成 Anthropic 的 `/anthropic/messages` 之类的具体路径；`OPENCODE_BASE_URL` 只是本地 opencode server 的地址，模型网关用 `GATEWAY_URL` 或 `OPENCODE_PROVIDER_BASE_URL`。
 
-### Stop the servers
-
-Press `Ctrl+C` in the backend and frontend terminals.
-
-If a process is still bound to a port:
+### 端口被占用
 
 ```bash
 lsof -i :8000 -sTCP:LISTEN
 lsof -i :5173 -sTCP:LISTEN
-```
-
-Then stop the listed PID if needed:
-
-```bash
+lsof -i :4096 -sTCP:LISTEN
 kill <PID>
 ```
 
-## Project Structure
+### opencode 配置生成失败
+
+`scripts/opencode.sh` 调用 `gen_opencode_config.py` 时若提示「没有可用模型」，说明 `models.json` 里所有条目都缺 `base_url` 或 `api_key`，且 `.env` 里也没有可兜底的 `GATEWAY_*`。补好至少一个完整模型再启动。
+
+---
+
+## 目录结构
 
 ```text
-cad/
+CAD-studio/
+├── .opencode/
+│   └── skills/
+│       ├── cadquery-studio/        CadQuery 建模/修复 skill
+│       └── cad-vision-brief/       图纸 → CAD brief skill
 ├── packages/
-│   ├── frontend/              # React 19 + Vite + TypeScript
-│   │   ├── src/
-│   │   │   ├── components/
-│   │   │   │   ├── layout/       TopNav, AppShell, Sidebar, RightPanel, MainViewport
-│   │   │   │   ├── viewport/     Canvas3D, ModelViewer
-│   │   │   │   ├── chat/         ChatPanel, ChatMessage, ChatInput, AgentPanel, collapsed output
-│   │   │   │   ├── parameters/   ParameterPanel, ParameterField
-│   │   │   │   └── common/       SettingsModal
-│   │   │   ├── stores/           Zustand stores
-│   │   │   ├── hooks/            useWebSocket
-│   │   │   ├── services/         stepLoader
-│   │   │   └── types/            TypeScript interfaces
-│   │   └── public/               occt-import-js WASM files
-│   └── backend/               # Python FastAPI
-│       ├── generated/            STEP outputs, Agent sessions
+│   ├── frontend/                   React 19 + Vite + TypeScript
+│   │   └── src/
+│   │       ├── components/
+│   │       │   ├── layout/         TopNav / AppShell / Sidebar / RightPanel / MainViewport
+│   │       │   ├── viewport/       Canvas3D、ModelViewer
+│   │       │   ├── chat/           ChatPanel、AgentPanel、可折叠输出
+│   │       │   ├── parameters/     ParameterPanel
+│   │       │   └── common/         SettingsModal
+│   │       ├── stores/             Zustand 状态
+│   │       ├── hooks/              useWebSocket
+│   │       ├── services/           stepLoader
+│   │       └── types/              TS 类型
+│   └── backend/                    FastAPI
+│       ├── generated/              STEP / glTF 输出 + agent_sessions
 │       └── src/
-│           ├── api/              chat, agent, cad, settings, health
+│           ├── api/                chat / agent / cad / settings / health
 │           ├── services/
-│           │   ├── ai/           gateway/openai/claude providers + prompts
-│           │   ├── cad/          executor subprocess + STEP export
-│           │   └── opencode/     opencode config, session assets, HTTP/SSE client
-│           ├── models/           Pydantic schemas
-│           └── config.py         Settings
-├── docker-compose.yml
-├── .opencode/skills/           # project opencode skills
-└── .env.example
+│           │   ├── ai/             gateway provider + system prompts
+│           │   ├── cad/            子进程执行 + STEP 导出
+│           │   └── opencode/       opencode 配置、session 资产、HTTP/SSE client
+│           ├── models/             Pydantic schema
+│           └── config.py
+├── scripts/
+│   ├── opencode.sh                 启动 opencode serve
+│   └── gen_opencode_config.py      读 models.json/.env 生成 opencode.json
+├── .env.example
+├── models.example.json
+├── docker-compose.yml              （可选，未在本 README 维护，按需自行调整）
+└── README.md
 ```
 
-## Update Log
-
-### 2026-06-24
-
-- Added opencode Agent integration updates for CAD generation, including per-conversation `cadquery.py` sessions, root config generation, health checking, and backend repair feedback.
-- Added project opencode skills for stricter CadQuery generation and image/drawing brief extraction:
-  - `.opencode/skills/cadquery-studio/`
-  - `.opencode/skills/cad-vision-brief/`
-- Improved multimodal input handling. Uploaded images can be forwarded to the Agent/opencode path and are preserved in chat history where applicable.
-- Improved frontend chat usability:
-  - User-sent images now remain visible in the conversation after sending.
-  - Long markdown, thinking text, tool output, and generated content are collapsible to avoid freezing or overflowing the chat panel.
-  - Agent status, connection state, tool calls, repair status, and completion state are shown more clearly.
-- Improved CAD viewport behavior and STEP/glTF loading, including face/highlight related robustness work and loading/error state handling.
-- Updated prompts and quality instructions to prefer precise, stable CadQuery models over fast approximate generation, with stronger validation expectations.
-- Updated environment, Docker, CORS/WebSocket, and README configuration for the Agent workflow.
+---
 
 ## License
 

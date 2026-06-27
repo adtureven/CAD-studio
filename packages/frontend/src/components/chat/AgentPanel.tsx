@@ -343,7 +343,7 @@ export function AgentPanel() {
                   send();
                 }
               }}
-              placeholder="让 Agent 编辑 cadquery.py，例如：做一个带四个安装孔的法兰盘"
+              placeholder="描述你想要的 CAD 模型，例如：做一个带四个安装孔的法兰盘"
               rows={3}
               className="flex-1 resize-none bg-transparent px-0 py-1 text-sm text-text-primary outline-none placeholder:text-text-secondary/60"
             />
