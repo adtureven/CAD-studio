@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..services.ai.base import AIRequest, StreamChunk
+from ..services.ai import model_config
 from ..services.ai.router import ai_router
 from ..services.cad.executor import execute_cadquery
 
@@ -77,7 +78,7 @@ async def handle_chat_request(websocket: WebSocket, payload: dict):
     conversation_id = payload.get("conversation_id", "default")
     message = payload.get("message", "")
     images = payload.get("images", [])
-    model = payload.get("model", "mimo-v2.5-pro")
+    model = payload.get("model") or model_config.default_model_id()
     enable_thinking = payload.get("enable_thinking", True)
     history = payload.get("history", [])
 
@@ -265,4 +266,7 @@ async def handle_param_update(websocket: WebSocket, payload: dict):
 
 @router.get("/models")
 async def list_models():
-    return {"models": ai_router.list_available_models()}
+    return {
+        "models": ai_router.list_available_models(),
+        "default_model": model_config.default_model_id(),
+    }

@@ -186,7 +186,7 @@ export function SettingsModal() {
                 type="text"
                 value={data.default_model}
                 onChange={(e) => setData({ ...data, default_model: e.target.value })}
-                placeholder="mimo-v2.5-pro"
+                placeholder="model-id"
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-cream focus:outline-none focus:ring-1 focus:ring-primary/50"
               />
               <p className="text-xs text-text-secondary/70 mt-1">默认选中的模型</p>

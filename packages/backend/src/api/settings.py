@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..config import settings, ENV_FILE
+from ..services.ai import model_config
 from ..services.ai.router import ai_router
 
 router = APIRouter()
@@ -63,7 +64,7 @@ def _current() -> SettingsResponse:
         gateway_api_key=_mask_key(settings.gateway_api_key),
         gateway_models=settings.gateway_models,
         agent_base_url=settings.agent_base_url,
-        default_model=settings.default_model,
+        default_model=model_config.default_model_id(),
     )
 
 

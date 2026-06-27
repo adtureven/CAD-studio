@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from ...config import settings
+from ..ai import model_config
 
 CAD_FILE_NAME = "cadquery.py"
 ROOT_CONFIG_NAME = "opencode.json"
@@ -53,21 +54,40 @@ def _provider_base_url() -> str:
 
 
 def build_root_config() -> dict:
-    provider_id = settings.opencode_provider_id
-    model = settings.default_model
+    models = [
+        model
+        for model in model_config.load_models()
+        if model.base_url and model.api_key
+    ]
+    configured_default = model_config.default_model_id()
+    allowed = {model.id for model in models}
+    default_model = configured_default if configured_default in allowed else (
+        models[0].id if models else configured_default
+    )
+    providers = {
+        model.id: {
+            "npm": "@ai-sdk/openai-compatible",
+            "options": {
+                "baseURL": model.base_url,
+                "apiKey": model.api_key,
+            },
+            "models": {
+                model.id: {
+                    "attachment": True,
+                    "tool_call": True,
+                    "modalities": {
+                        "input": ["text", "image"],
+                        "output": ["text"],
+                    },
+                }
+            },
+        }
+        for model in models
+    }
     return {
         "$schema": "https://opencode.ai/config.json",
-        "provider": {
-            provider_id: {
-                "npm": "@ai-sdk/openai-compatible",
-                "options": {
-                    "baseURL": _provider_base_url(),
-                    "apiKey": _provider_api_key(),
-                },
-                "models": {model: {}},
-            }
-        },
-        "model": f"{provider_id}/{model}",
+        "provider": providers,
+        "model": f"{default_model}/{default_model}",
         "permission": {
             "edit": {f"**/{CAD_FILE_NAME}": "allow", "**": "deny"},
             "skill": {
@@ -89,7 +109,8 @@ def write_root_config() -> Path:
 
 
 def model_ref() -> str:
-    return f"{settings.opencode_provider_id}/{settings.default_model}"
+    model = model_config.default_model_id()
+    return f"{model}/{model}"
 
 
 def _safe_conversation_id(value: str) -> str:

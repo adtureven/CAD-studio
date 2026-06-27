@@ -6,6 +6,7 @@ import anthropic
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..config import settings
+from ..services.ai import model_config
 from ..services.ai.base import split_image_data
 from ..services.cad.executor import execute_cadquery
 from ..services.opencode import client as opencode_client
@@ -151,7 +152,7 @@ async def _run_agent_turn(websocket: WebSocket, payload: dict):
         return
 
     conversation_id = payload.get("conversation_id") or "default"
-    model = payload.get("model") or settings.default_model
+    model = payload.get("model") or model_config.default_model_id()
     api_key = settings.anthropic_api_key or settings.gateway_api_key
 
     if not api_key:
@@ -241,8 +242,6 @@ def _resolve_opencode_model(requested: str | None) -> str:
     registered as opencode providers, so fall back to the configured default
     when the frontend sends an unknown/empty value.
     """
-    from ..services.ai import model_config
-
     models = model_config.load_models()
     allowed = {m.id for m in models}
     if requested and requested in allowed:

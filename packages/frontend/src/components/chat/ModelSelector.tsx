@@ -8,6 +8,11 @@ interface ModelInfo {
   provider: string;
 }
 
+interface ModelsResponse {
+  models?: ModelInfo[];
+  default_model?: string;
+}
+
 export function ModelSelector() {
   const selectedModel = useChatStore((s) => s.selectedModel);
   const setModel = useChatStore((s) => s.setModel);
@@ -18,11 +23,16 @@ export function ModelSelector() {
   const loadModels = () => {
     fetch("/api/chat/models")
       .then((r) => r.json())
-      .then((d) => {
+      .then((d: ModelsResponse) => {
         const list: ModelInfo[] = d.models || [];
         setModels(list);
-        if (list.length && !list.some((m) => m.id === selectedModel)) {
-          setModel(list[0]!.id);
+        if (!list.length) return;
+
+        const hasSelected = selectedModel && list.some((m) => m.id === selectedModel);
+        if (!hasSelected) {
+          const fallback =
+            list.find((m) => m.id === d.default_model) ?? list[0]!;
+          setModel(fallback.id);
         }
       })
       .catch(() => {});
@@ -52,7 +62,7 @@ export function ModelSelector() {
         title="选择模型"
       >
         <Cpu className="w-3 h-3 shrink-0" />
-        <span className="truncate">{selectedModel}</span>
+        <span className="truncate">{selectedModel || "Model"}</span>
         <ChevronDown className="w-3 h-3 shrink-0" />
       </button>
 

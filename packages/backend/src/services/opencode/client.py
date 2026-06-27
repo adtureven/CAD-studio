@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from ...config import settings
+from ..ai import model_config
 
 
 class OpencodeError(RuntimeError):
@@ -63,7 +64,7 @@ async def prompt(
     Each model is registered as its own opencode provider whose id equals the
     model id (see scripts/gen_opencode_config.py), so providerID == modelID.
     """
-    mid = model_id or settings.default_model
+    mid = model_id or model_config.default_model_id()
     body = {
         "model": {
             "providerID": mid,

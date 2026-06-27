@@ -27,7 +27,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   isStreaming: false,
   currentThinking: "",
   currentResponse: "",
-  selectedModel: "mimo-v2.5-pro",
+  selectedModel: "",
 
   createConversation: () => {
     const id = crypto.randomUUID();
