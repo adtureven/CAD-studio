@@ -1,0 +1,55 @@
+packages/frontend/src/components/chat/AgentPanel.tsx
+  h_4db2f297adc467 346 gitai:{"mixed_line_ranges":[{"Single":346}],"operations":[]}
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3722490620b4c1d2174d052bde7fdb6fc807904d",
+  "prompts": {},
+  "humans": {
+    "h_4db2f297adc467": {
+      "author": "gaozhitao.123 <gaozhitao.123@bytedance.com>"
+    }
+  },
+  "attestation_metadata": {
+    "packages/frontend/src/components/chat/AgentPanel.tsx": [
+      {
+        "hash": "h_4db2f297adc467",
+        "line_ranges": [
+          {
+            "Single": 346
+          }
+        ],
+        "mixed_line_ranges": [
+          {
+            "Single": 346
+          }
+        ],
+        "operations": []
+      }
+    ]
+  },
+  "remote_transcripts": {
+    "s_0cedb6059592f3": {
+      "tool": "trae",
+      "conversation_id": "6a3f40a31ae22f6ed03a6de4",
+      "session_id": "6a3f40a31ae22f6ed03a6de4",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_0cedb6059592f3::t_4e278ae8030b43": {
+      "tool": "trae",
+      "conversation_id": "6a3f40a31ae22f6ed03a6de4",
+      "session_id": "6a3f40a31ae22f6ed03a6de4",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    },
+    "s_0cedb6059592f3::t_dfef814bd5711e": {
+      "tool": "trae",
+      "conversation_id": "6a3f40a31ae22f6ed03a6de4",
+      "session_id": "6a3f40a31ae22f6ed03a6de4",
+      "status": "remote_only",
+      "message": "Remote transcript resolution is not implemented yet for TRAE prompts."
+    }
+  }
+}
