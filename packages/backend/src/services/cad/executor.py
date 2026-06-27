@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import re
 import time
 import uuid
@@ -15,7 +16,7 @@ from ...models.cad import ParameterDef, ParameterType
 
 ALLOWED_IMPORTS = {"cadquery", "math", "cq"}
 
-EXECUTOR_TEMPLATE = '''
+EXECUTOR_TEMPLATE = '''# -*- coding: utf-8 -*-
 import cadquery as cq
 import math
 import json
@@ -142,7 +143,14 @@ def apply_parameters(code: str, parameters: dict) -> str:
     return code
 
 
+def _sanitize_source(code: str) -> str:
+    # Strip BOM and zero-width characters that LLM output frequently smuggles in;
+    # otherwise the Python interpreter rejects the file as "Non-UTF-8 code start".
+    return code.lstrip("\ufeff").replace("\u200b", "")
+
+
 def execute_cadquery(code: str, parameters: Optional[dict] = None, output_format: str = "step") -> dict:
+    code = _sanitize_source(code)
     if parameters:
         code = apply_parameters(code, parameters)
 
@@ -154,7 +162,13 @@ def execute_cadquery(code: str, parameters: Optional[dict] = None, output_format
 
     start_time = time.time()
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".py",
+        delete=False,
+        encoding="utf-8",
+        newline="\n",
+    ) as f:
         f.write(script)
         script_path = f.name
 
@@ -166,11 +180,18 @@ def execute_cadquery(code: str, parameters: Optional[dict] = None, output_format
         if output_format == "step":
             cmd.append(str(step_path))
 
+        env = os.environ.copy()
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=settings.max_execution_time,
+            env=env,
         )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
@@ -307,5 +328,5 @@ def _write_gltf(mesh_data: dict, output_path: Path):
         ],
     }
 
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(gltf, f)
