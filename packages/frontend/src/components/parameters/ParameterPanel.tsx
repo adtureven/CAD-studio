@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useParameterStore } from "@/stores/parameterStore";
 import { useViewportStore } from "@/stores/viewportStore";
+import { useLibraryStore } from "@/stores/libraryStore";
 import type { ParameterDef } from "@/types/model";
 import { Sliders } from "lucide-react";
 
@@ -19,6 +20,12 @@ export function ParameterPanel({ onUpdateParameters }: ParameterPanelProps) {
   const handleChange = useCallback(
     (name: string, value: number | string | boolean) => {
       updateParameter(name, value);
+      const targetSavedModelId = useLibraryStore.getState().activeSavedModelId;
+      if (targetSavedModelId) {
+        useLibraryStore.getState().updateModel(targetSavedModelId, {
+          parameters: cloneParameters(useParameterStore.getState().parameters),
+        });
+      }
 
       const { previewModelId, modelUrl } = useViewportStore.getState();
       if (previewModelId) return;
@@ -47,6 +54,13 @@ export function ParameterPanel({ onUpdateParameters }: ParameterPanelProps) {
               useViewportStore
                 .getState()
                 .setModelUrl(data.model_url, data.format || "step");
+              if (targetSavedModelId) {
+                useLibraryStore.getState().updateModel(targetSavedModelId, {
+                  modelUrl: data.model_url,
+                  format: data.format || "step",
+                  parameters: cloneParameters(params),
+                });
+              }
             }
           } catch {
             useViewportStore.getState().setLoading(false);
@@ -100,6 +114,10 @@ export function ParameterPanel({ onUpdateParameters }: ParameterPanelProps) {
       ))}
     </div>
   );
+}
+
+function cloneParameters(parameters: ParameterDef[]) {
+  return parameters.map((p) => ({ ...p }));
 }
 
 function ParameterField({

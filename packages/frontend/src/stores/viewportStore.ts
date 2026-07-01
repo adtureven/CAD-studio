@@ -38,7 +38,7 @@ export const useViewportStore = create<ViewportStore>((set) => ({
 
   setModelUrl: (url, format) => {
     const detected = format || (url.endsWith(".step") ? "step" : "gltf");
-    set({ modelUrl: url || null, modelFormat: detected, isLoading: false, error: null });
+    set({ modelUrl: url || null, modelFormat: detected, previewModelId: null, isLoading: false, error: null });
   },
   setPreviewModelId: (id) => set({ previewModelId: id, modelUrl: null, modelFormat: null }),
   setLoading: (loading) => set({ isLoading: loading }),

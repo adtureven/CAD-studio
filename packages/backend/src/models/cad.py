@@ -29,6 +29,17 @@ class CADExecuteRequest(BaseModel):
     parameters: Optional[dict[str, float | int | str | bool]] = None
 
 
+class CADNameRequest(BaseModel):
+    prompt: str = ""
+    code: str = ""
+    model: Optional[str] = None
+    fallback_name: str = "生成模型"
+
+
+class CADNameResponse(BaseModel):
+    name: str
+
+
 class CADExecuteResponse(BaseModel):
     success: bool
     model_url: Optional[str] = None

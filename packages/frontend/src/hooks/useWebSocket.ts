@@ -6,6 +6,7 @@ import { useLibraryStore } from "@/stores/libraryStore";
 import type { StreamEvent } from "@/types/chat";
 import type { ParameterDef } from "@/types/model";
 import { getBackendWsUrl } from "@/utils/backendWs";
+import { generateModelName } from "@/services/modelNaming";
 
 const WS_URL = getBackendWsUrl("/api/chat/ws");
 
@@ -139,17 +140,29 @@ function handleMessage(event: StreamEvent) {
     case "cad_result": {
       const modelUrl = event.payload.model_url as string;
       const format = (event.payload.format as "gltf" | "step") || "step";
+      const parameters = Array.isArray(event.payload.parameters)
+        ? (event.payload.parameters as ParameterDef[])
+        : [];
       viewportStore.setModelUrl(modelUrl, format);
-      parameterStore.setParameters(
-        event.payload.parameters as ParameterDef[]
-      );
+      parameterStore.setParameters(parameters);
       const code = parameterStore.currentCode;
-      const convTitle = chatStore.getActiveConversation()?.title || "模型";
-      useLibraryStore.getState().addModel({
-        name: convTitle.slice(0, 30),
+      const prompt = getLatestUserPrompt();
+      const fallbackName = modelNameFallback(prompt, chatStore.getActiveConversation()?.title);
+      const modelId = useLibraryStore.getState().addModel({
+        name: fallbackName,
         code,
         modelUrl,
         format,
+        parameters: cloneParameters(parameters),
+        sourcePrompt: prompt,
+      });
+      void generateModelName({
+        prompt,
+        code,
+        model: chatStore.selectedModel,
+        fallbackName,
+      }).then((name) => {
+        useLibraryStore.getState().updateModel(modelId, { name });
       });
       break;
     }
@@ -192,4 +205,25 @@ function handleMessage(event: StreamEvent) {
       viewportStore.setError(event.payload.message as string);
       break;
   }
+}
+
+function cloneParameters(parameters: ParameterDef[]) {
+  return parameters.map((p) => ({ ...p }));
+}
+
+function getLatestUserPrompt() {
+  const conversation = useChatStore.getState().getActiveConversation();
+  const messages = conversation?.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role === "user" && message.content.trim()) {
+      return message.content.trim();
+    }
+  }
+  return "";
+}
+
+function modelNameFallback(prompt: string, title?: string) {
+  const value = (prompt || title || "生成模型").trim();
+  return value.slice(0, 24) || "生成模型";
 }

@@ -23,6 +23,7 @@ import { getBackendWsUrl } from "@/utils/backendWs";
 import { CollapsibleContent } from "./CollapsibleContent";
 import { ImageAttachments } from "./ImageAttachments";
 import { MarkdownContent } from "./MarkdownContent";
+import { generateModelName } from "@/services/modelNaming";
 
 type AgentEntry = {
   id: string;
@@ -49,6 +50,7 @@ type HandlerCtx = {
   setRunStatus: Dispatch<SetStateAction<AgentRunStatus | null>>;
   streamingIdRef: RefObject<string | null>;
   thinkingIdRef: RefObject<string | null>;
+  lastPromptRef: RefObject<string>;
 };
 
 export function AgentPanel() {
@@ -69,6 +71,7 @@ export function AgentPanel() {
   const lastActiveConversationIdRef = useRef<string | null>(activeConversationId);
   const streamingIdRef = useRef<string | null>(null);
   const thinkingIdRef = useRef<string | null>(null);
+  const lastPromptRef = useRef("");
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 
@@ -108,7 +111,14 @@ export function AgentPanel() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          handleAgentEvent(data, { setEntries, setIsRunning, setRunStatus, streamingIdRef, thinkingIdRef });
+          handleAgentEvent(data, {
+            setEntries,
+            setIsRunning,
+            setRunStatus,
+            streamingIdRef,
+            thinkingIdRef,
+            lastPromptRef,
+          });
         } catch {
           setEntries((prev) => [
             ...prev,
@@ -154,6 +164,7 @@ export function AgentPanel() {
     setRunStatus(null);
     streamingIdRef.current = null;
     thinkingIdRef.current = null;
+    lastPromptRef.current = "";
     stickToBottomRef.current = true;
   }, [activeConversationId]);
 
@@ -191,6 +202,7 @@ export function AgentPanel() {
 
     streamingIdRef.current = null;
     thinkingIdRef.current = null;
+    lastPromptRef.current = message || (images.length > 0 ? `图片参考 ${images.length} 张` : "");
     stickToBottomRef.current = true;
     setEntries((prev) => [
       ...prev,
@@ -369,7 +381,7 @@ function handleAgentEvent(
   data: { type: string; payload?: Record<string, unknown> },
   ctx: HandlerCtx
 ) {
-  const { setEntries, setIsRunning, setRunStatus, streamingIdRef, thinkingIdRef } = ctx;
+  const { setEntries, setIsRunning, setRunStatus, streamingIdRef, thinkingIdRef, lastPromptRef } = ctx;
   const payload = data.payload ?? {};
 
   switch (data.type) {
@@ -467,11 +479,23 @@ function handleAgentEvent(
       }
 
       viewportStore.setModelUrl(modelUrl, format);
-      useLibraryStore.getState().addModel({
-        name: "智能体模型",
+      const prompt = lastPromptRef.current;
+      const fallbackName = modelNameFallback(prompt);
+      const modelId = useLibraryStore.getState().addModel({
+        name: fallbackName,
         code: parameterStore.currentCode,
         modelUrl,
         format,
+        parameters: cloneParameters(parameters),
+        sourcePrompt: prompt,
+      });
+      void generateModelName({
+        prompt,
+        code: parameterStore.currentCode,
+        model: useChatStore.getState().selectedModel,
+        fallbackName,
+      }).then((name) => {
+        useLibraryStore.getState().updateModel(modelId, { name });
       });
       return;
     }
@@ -552,6 +576,15 @@ function handleAgentEvent(
     default:
       return;
   }
+}
+
+function cloneParameters(parameters: ParameterDef[]) {
+  return parameters.map((p) => ({ ...p }));
+}
+
+function modelNameFallback(prompt: string) {
+  const value = (prompt || "生成模型").trim();
+  return value.slice(0, 24) || "生成模型";
 }
 
 function finalizeStreamingIfMissing(

@@ -146,27 +146,35 @@ result = (
 ];
 
 function parseParameterDefs(code: string): ParameterDef[] {
-  const match = code.match(/# PARAMETER_DEFS: \[([\s\S]*?)# \]/);
+  const match = code.match(/#\s*PARAMETER_DEFS:\s*(\[[\s\S]*?\])/);
   if (!match) return [];
   try {
     const jsonStr = match[1]!.replace(/^#\s*/gm, "");
-    return JSON.parse(`[${jsonStr}]`);
+    return JSON.parse(jsonStr);
   } catch {
     return [];
   }
+}
+
+function cloneParameters(parameters: ParameterDef[]) {
+  return parameters.map((p) => ({ ...p }));
 }
 
 export function Sidebar() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { setCode, setParameters } = useParameterStore();
   const { setModelUrl, setPreviewModelId, setLoading } = useViewportStore();
-  const { savedModels, removeModel } = useLibraryStore();
+  const { savedModels, removeModel, setActiveSavedModel } = useLibraryStore();
 
   const handleSavedModelClick = (model: SavedModel) => {
     if (useChatStore.getState().isStreaming) return;
     setSelectedId(model.id);
+    setActiveSavedModel(model.id);
     setCode(model.code);
-    const params = parseParameterDefs(model.code);
+    const params =
+      model.parameters.length > 0
+        ? cloneParameters(model.parameters)
+        : parseParameterDefs(model.code);
     setParameters(params);
     setModelUrl(model.modelUrl, model.format);
   };
@@ -174,6 +182,7 @@ export function Sidebar() {
   const handleModelClick = async (model: ExampleModel) => {
     if (useChatStore.getState().isStreaming) return;
     setSelectedId(model.id);
+    setActiveSavedModel(null);
     setCode(model.code);
     const params = parseParameterDefs(model.code);
     setParameters(params);
