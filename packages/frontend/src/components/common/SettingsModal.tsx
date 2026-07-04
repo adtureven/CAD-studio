@@ -6,8 +6,6 @@ import { DEFAULT_MODEL_APPEARANCE, useAppearanceStore } from "@/stores/appearanc
 interface SettingsData {
   gateway_url: string;
   gateway_api_key: string;
-  gateway_models: string;
-  agent_base_url: string;
   default_model: string;
 }
 
@@ -25,8 +23,6 @@ export function SettingsModal() {
   const [data, setData] = useState<SettingsData>({
     gateway_url: "",
     gateway_api_key: "",
-    gateway_models: "",
-    agent_base_url: "",
     default_model: "",
   });
   const [showKey, setShowKey] = useState(false);
@@ -169,18 +165,6 @@ export function SettingsModal() {
             </div>
 
             <div>
-              <label className="block text-sm text-text-primary mb-1">Models</label>
-              <input
-                type="text"
-                value={data.gateway_models}
-                onChange={(e) => setData({ ...data, gateway_models: e.target.value })}
-                placeholder="gpt-4o, claude-3-5-sonnet"
-                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-cream focus:outline-none focus:ring-1 focus:ring-primary/50"
-              />
-              <p className="text-xs text-text-secondary/70 mt-1">Comma-separated model names</p>
-            </div>
-
-            <div>
               <label className="block text-sm text-text-primary mb-1">Default Model</label>
               <input
                 type="text"
@@ -189,19 +173,7 @@ export function SettingsModal() {
                 placeholder="model-id"
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-cream focus:outline-none focus:ring-1 focus:ring-primary/50"
               />
-              <p className="text-xs text-text-secondary/70 mt-1">默认选中的模型</p>
-            </div>
-
-            <div>
-              <label className="block text-sm text-text-primary mb-1">Agent Base URL</label>
-              <input
-                type="url"
-                value={data.agent_base_url}
-                onChange={(e) => setData({ ...data, agent_base_url: e.target.value })}
-                placeholder="https://.../anthropic"
-                className="w-full px-3 py-2 text-sm border border-border rounded-lg bg-cream focus:outline-none focus:ring-1 focus:ring-primary/50"
-              />
-              <p className="text-xs text-text-secondary/70 mt-1">Agent 模式使用的 Anthropic 兼容端点</p>
+              <p className="text-xs text-text-secondary/70 mt-1">Chat 和 Agent 共用该模型</p>
             </div>
           </div>
         </div>

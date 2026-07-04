@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -13,16 +15,12 @@ ENV_PATH = ENV_FILE
 class SettingsResponse(BaseModel):
     gateway_url: str
     gateway_api_key: str
-    gateway_models: str
-    agent_base_url: str
     default_model: str
 
 
 class SettingsUpdate(BaseModel):
     gateway_url: str | None = None
     gateway_api_key: str | None = None
-    gateway_models: str | None = None
-    agent_base_url: str | None = None
     default_model: str | None = None
 
 
@@ -34,22 +32,39 @@ async def get_settings():
 @router.put("/settings", response_model=SettingsResponse)
 async def update_settings(body: SettingsUpdate):
     changes: dict[str, str] = {}
+    current = _current_values()
 
     if body.gateway_url is not None:
-        settings.gateway_url = body.gateway_url
-        changes["GATEWAY_URL"] = body.gateway_url
+        api_url = body.gateway_url.strip()
+        settings.gateway_url = api_url
+        settings.agent_base_url = api_url
+        settings.opencode_provider_base_url = api_url
+        changes["GATEWAY_URL"] = api_url
+        changes["AGENT_BASE_URL"] = api_url
+        changes["OPENCODE_PROVIDER_BASE_URL"] = api_url
+    else:
+        api_url = current["api_url"]
+
     if body.gateway_api_key is not None and not body.gateway_api_key.startswith("***"):
-        settings.gateway_api_key = body.gateway_api_key
-        changes["GATEWAY_API_KEY"] = body.gateway_api_key
-    if body.gateway_models is not None:
-        settings.gateway_models = body.gateway_models
-        changes["GATEWAY_MODELS"] = body.gateway_models
-    if body.agent_base_url is not None:
-        settings.agent_base_url = body.agent_base_url
-        changes["AGENT_BASE_URL"] = body.agent_base_url
+        api_key = body.gateway_api_key.strip()
+        settings.gateway_api_key = api_key
+        settings.anthropic_api_key = api_key
+        changes["GATEWAY_API_KEY"] = api_key
+        changes["ANTHROPIC_API_KEY"] = api_key
+    else:
+        api_key = current["api_key"]
+
     if body.default_model is not None:
-        settings.default_model = body.default_model
-        changes["DEFAULT_MODEL"] = body.default_model
+        default_model = body.default_model.strip()
+        settings.default_model = default_model
+        settings.gateway_models = default_model
+        changes["DEFAULT_MODEL"] = default_model
+        changes["GATEWAY_MODELS"] = default_model
+    else:
+        default_model = current["default_model"]
+
+    if default_model:
+        _persist_models_json(default_model, api_url, api_key)
 
     if changes:
         _persist_env(changes)
@@ -59,13 +74,25 @@ async def update_settings(body: SettingsUpdate):
 
 
 def _current() -> SettingsResponse:
+    current = _current_values()
     return SettingsResponse(
-        gateway_url=settings.gateway_url,
-        gateway_api_key=_mask_key(settings.gateway_api_key),
-        gateway_models=settings.gateway_models,
-        agent_base_url=settings.agent_base_url,
-        default_model=model_config.default_model_id(),
+        gateway_url=current["api_url"],
+        gateway_api_key=_mask_key(current["api_key"]),
+        default_model=current["default_model"],
     )
+
+
+def _current_values() -> dict[str, str]:
+    default_model = model_config.default_model_id()
+    model = model_config.get_model(default_model)
+    api_url = model.base_url if model and model.base_url else settings.gateway_url
+    api_key = model.api_key if model and model.api_key else settings.gateway_api_key
+
+    return {
+        "api_url": api_url,
+        "api_key": api_key,
+        "default_model": default_model,
+    }
 
 
 def _mask_key(key: str) -> str:
@@ -91,3 +118,25 @@ def _persist_env(changes: dict[str, str]) -> None:
         lines.append(f"{key}={value}")
 
     ENV_PATH.write_text("\n".join(lines) + "\n")
+
+
+def _persist_models_json(model_id: str, api_url: str, api_key: str) -> None:
+    """Keep the selectable model list aligned with the simplified settings UI."""
+    if not model_id:
+        return
+
+    data = {
+        "default": model_id,
+        "models": [
+            {
+                "id": model_id,
+                "name": model_id,
+                "base_url": api_url,
+                "api_key": api_key,
+                "vision": True,
+            }
+        ],
+    }
+    model_config.MODELS_FILE.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    )

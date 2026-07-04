@@ -4,7 +4,6 @@ import { ChatMessage } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { AgentPanel } from "./AgentPanel";
-import { ModelSelector } from "./ModelSelector";
 import { Bot, MessageSquare, X, Plus } from "lucide-react";
 import { useUIStore } from "@/stores/uiStore";
 
@@ -68,7 +67,9 @@ export function ChatPanel({ onSendMessage }: ChatPanelProps) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <ModelSelector />
+          <span className="px-2 py-0.5 text-[11px] rounded-md border border-border text-text-secondary">
+            opencode
+          </span>
           <button
             onClick={toggleChatPanel}
             className="p-1 rounded hover:bg-cream-dark text-text-secondary"
