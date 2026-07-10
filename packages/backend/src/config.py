@@ -37,6 +37,17 @@ class Settings(BaseSettings):
     max_execution_time: int = 30
     max_memory_mb: int = 512
 
+    # RAG / Knowledge base. Embedding endpoint is OpenAI-compatible. Leave
+    # base_url/api_key empty to fall back to a local TF-IDF style retrieval.
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
+    knowledge_dir: Path = Path("generated") / "knowledge_base"
+    knowledge_chunk_size: int = 800
+    knowledge_chunk_overlap: int = 150
+    knowledge_auto_retrieve_top_k: int = 3
+
     model_config = {
         "env_file": str(ENV_FILE),
         "extra": "ignore",
@@ -56,3 +67,4 @@ if not settings.default_model:
     settings.default_model = _first_gateway_model(settings.gateway_models) or "mimo-v2.5-pro"
 
 settings.generated_dir.mkdir(parents=True, exist_ok=True)
+settings.knowledge_dir.mkdir(parents=True, exist_ok=True)

@@ -11,6 +11,7 @@ from ..services.ai.base import split_image_data
 from ..services.cad.executor import execute_cadquery
 from ..services.opencode import client as opencode_client
 from ..services.opencode import provision as opencode_provision
+from ..services.rag import get_knowledge_service
 
 router = APIRouter()
 
@@ -61,6 +62,29 @@ TOOLS = [
             "你应据此修复 cadquery.py 后再次渲染。"
         ),
         "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "search_knowledge",
+        "description": (
+            "在用户上传的机械设计知识库中检索相关段落（GB/ISO 标准、"
+            "齿轮设计、公差配合、材料选型等）。涉及标准数值、公差、"
+            "材料许用应力、模数系列等硬指标时，务必先调用此工具。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "自然语言检索关键词，例如“GB/T 1357 齿轮模数系列”。",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "返回条数，默认 3，最大 8。",
+                    "default": 3,
+                },
+            },
+            "required": ["query"],
+        },
     },
 ]
 
@@ -306,12 +330,16 @@ async def _run_agent_turn_opencode(
 
     state = {"last_render_ok": False}
 
+    prompt_text = await _maybe_prepend_knowledge_context(
+        websocket, conversation_id, message
+    )
+
     ok = await _run_opencode_prompt(
         websocket=websocket,
         conversation_id=conversation_id,
         session_id=session_id,
         directory=directory,
-        text=message,
+        text=prompt_text,
         images=images,
         model=model,
     )
@@ -793,6 +821,25 @@ async def _execute_tool(
         state["last_render_ok"] = False
         return f"渲染失败：{result.get('error', 'CAD 执行失败')}", True
 
+    if name == "search_knowledge":
+        query = (tool_input.get("query") or "").strip()
+        if not query:
+            return "search_knowledge 需要非空的 query 参数。", True
+        top_k = int(tool_input.get("top_k") or 3)
+        top_k = max(1, min(top_k, 8))
+        await _send_status(websocket, conversation_id, "tool", f"检索知识库：{query}")
+        try:
+            hits = await get_knowledge_service().search(query, top_k=top_k)
+        except Exception as exc:
+            return f"检索失败：{exc}", True
+        if not hits:
+            return "知识库中未找到相关内容。", False
+        await websocket.send_json({
+            "type": "agent_knowledge_hits",
+            "payload": {"query": query, "hits": hits, "conversation_id": conversation_id},
+        })
+        return _format_hits_for_model(hits), False
+
     return f"未知工具：{name}", True
 
 
@@ -858,6 +905,56 @@ async def _send_status(websocket: WebSocket, conversation_id: str, phase: str, l
         "type": "agent_status",
         "payload": {"phase": phase, "label": label, "conversation_id": conversation_id},
     })
+
+
+def _format_hits_for_model(hits: list[dict]) -> str:
+    lines = []
+    for i, hit in enumerate(hits, 1):
+        header = f"[{i}] {hit.get('filename', '?')} · 第 {hit.get('page', 0)} 页"
+        heading = hit.get("heading")
+        if heading:
+            header += f" · {heading}"
+        header += f" · score={hit.get('score', 0)}"
+        lines.append(header)
+        lines.append(hit.get("text", "").strip())
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+async def _maybe_prepend_knowledge_context(
+    websocket: WebSocket, conversation_id: str, message: str
+) -> str:
+    """Auto-retrieve KB context for opencode turns (which can't call tools yet).
+
+    Returns the (possibly augmented) prompt. Silent no-op when the KB is empty
+    or retrieval fails — the Agent will still run without RAG.
+    """
+    if not message.strip():
+        return message
+    try:
+        service = get_knowledge_service()
+        if not service.list_docs():
+            return message
+        context, hits = await service.search_as_context(
+            message, top_k=settings.knowledge_auto_retrieve_top_k
+        )
+    except Exception:
+        return message
+    if not context:
+        return message
+    try:
+        await websocket.send_json({
+            "type": "agent_knowledge_hits",
+            "payload": {"query": message, "hits": hits, "conversation_id": conversation_id},
+        })
+    except Exception:
+        pass
+    return (
+        "以下是来自机械设计知识库的相关资料（供参考，务必符合其中的标准数值）：\n\n"
+        f"{context}\n\n"
+        "---\n用户请求：\n"
+        f"{message}"
+    )
 
 
 async def _build_opencode_parts(conversation_id: str, text: str, images: list) -> list[dict]:

@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Bot,
   Brain,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -19,6 +20,7 @@ import type { ParameterDef } from "@/types/model";
 import { useLibraryStore } from "@/stores/libraryStore";
 import { useParameterStore } from "@/stores/parameterStore";
 import { useViewportStore } from "@/stores/viewportStore";
+import { useKnowledgeStore, type KnowledgeHit } from "@/stores/knowledgeStore";
 import { getBackendWsUrl } from "@/utils/backendWs";
 import { CollapsibleContent } from "./CollapsibleContent";
 import { ImageAttachments } from "./ImageAttachments";
@@ -27,10 +29,11 @@ import { generateModelName } from "@/services/modelNaming";
 
 type AgentEntry = {
   id: string;
-  role: "user" | "agent" | "system" | "error" | "thinking";
+  role: "user" | "agent" | "system" | "error" | "thinking" | "knowledge";
   title: string;
   content?: string;
   images?: string[];
+  hits?: KnowledgeHit[];
   status?: "running" | "success" | "error";
   streaming?: boolean;
 };
@@ -450,6 +453,25 @@ function handleAgentEvent(
       return;
     }
 
+    case "agent_knowledge_hits": {
+      const rawHits = Array.isArray(payload.hits) ? (payload.hits as KnowledgeHit[]) : [];
+      if (rawHits.length === 0) return;
+      const q = typeof payload.query === "string" ? payload.query : "";
+      useKnowledgeStore.getState().setLastHits(q, rawHits);
+      finalizeStreaming(streamingIdRef, setEntries);
+      finalizeThinking(thinkingIdRef, setEntries);
+      setEntries((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "knowledge",
+          title: q ? `知识库检索：${q}` : "知识库检索",
+          hits: rawHits,
+        },
+      ]);
+      return;
+    }
+
     case "agent_code": {
       const code = typeof payload.code === "string" ? payload.code : "";
       if (code) useParameterStore.getState().setCode(code);
@@ -737,6 +759,10 @@ const AgentEntryView = memo(function AgentEntryView({ entry }: { entry: AgentEnt
     return <ThinkingEntryView entry={entry} />;
   }
 
+  if (entry.role === "knowledge") {
+    return <KnowledgeEntryView entry={entry} />;
+  }
+
   const Icon =
     entry.role === "error"
       ? AlertTriangle
@@ -833,6 +859,50 @@ function AgentMarkdown({ content }: { content: string }) {
           />
         )}
       />
+    </div>
+  );
+}
+
+function KnowledgeEntryView({ entry }: { entry: AgentEntry }) {
+  const [open, setOpen] = useState(false);
+  const hits = entry.hits ?? [];
+  return (
+    <div className="flex gap-2.5 py-1.5">
+      <div className="mt-0.5 w-6 h-6 rounded-md border border-primary/25 bg-primary-light flex items-center justify-center flex-shrink-0 text-primary">
+        <BookOpen className="w-3.5 h-3.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-text-secondary cursor-pointer hover:text-text-primary"
+        >
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          <span className="truncate">{entry.title}</span>
+          <span className="text-[10px] text-text-secondary/70">{hits.length} 条</span>
+        </button>
+        {open && (
+          <div className="mt-1 space-y-1.5">
+            {hits.map((hit, idx) => (
+              <div
+                key={hit.chunk_id}
+                className="rounded-md border border-border bg-cream px-2 py-1.5"
+              >
+                <div className="flex items-center justify-between text-[10px] text-text-secondary">
+                  <span className="truncate">
+                    [{idx + 1}] {hit.filename} · 第 {hit.page} 页
+                    {hit.heading ? ` · ${hit.heading}` : ""}
+                  </span>
+                  <span className="font-mono">score {hit.score}</span>
+                </div>
+                <div className="mt-1 text-[11px] leading-relaxed text-text-primary whitespace-pre-wrap break-words">
+                  {hit.text.length > 220 ? hit.text.slice(0, 220) + "…" : hit.text}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,10 +1,11 @@
-import { Star, Folder, Clock, Trash2 } from "lucide-react";
+import { Star, Folder, Clock, Trash2, BookOpen } from "lucide-react";
 import { useState } from "react";
 import { useParameterStore } from "@/stores/parameterStore";
 import { useViewportStore } from "@/stores/viewportStore";
 import { useLibraryStore, type SavedModel } from "@/stores/libraryStore";
 import { useChatStore } from "@/stores/chatStore";
 import type { ParameterDef } from "@/types/model";
+import { KnowledgePanel } from "../knowledge/KnowledgePanel";
 
 interface ExampleModel {
   id: string;
@@ -202,6 +203,7 @@ function cloneParameters(parameters: ParameterDef[]) {
 
 export function Sidebar() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"models" | "knowledge">("models");
   const { setCode, setParameters } = useParameterStore();
   const { setModelUrl, setPreviewModelId, setLoading } = useViewportStore();
   const { savedModels, removeModel, setActiveSavedModel } = useLibraryStore();
@@ -251,14 +253,37 @@ export function Sidebar() {
 
   return (
     <aside className="h-full flex flex-col overflow-hidden">
-      <div className="p-3 border-b border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-1.5">
+      <div className="p-2 border-b border-border flex gap-1">
+        <button
+          onClick={() => setTab("models")}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            tab === "models"
+              ? "bg-primary-light text-primary"
+              : "text-text-secondary hover:bg-cream-dark"
+          }`}
+        >
           <Folder className="w-3.5 h-3.5" />
-          Model Library
-        </h2>
+          模型库
+        </button>
+        <button
+          onClick={() => setTab("knowledge")}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            tab === "knowledge"
+              ? "bg-primary-light text-primary"
+              : "text-text-secondary hover:bg-cream-dark"
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          知识库
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      {tab === "knowledge" ? (
+        <div className="flex-1 overflow-hidden">
+          <KnowledgePanel />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {EXAMPLE_MODELS.map((model) => (
           <button
             key={model.id}
@@ -342,7 +367,8 @@ export function Sidebar() {
             ))}
           </>
         )}
-      </div>
+        </div>
+      )}
     </aside>
   );
 }

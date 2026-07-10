@@ -1,5 +1,12 @@
 import logging
 import mimetypes
+import os
+
+# CadQuery/OCP and faiss-cpu each ship their own libomp; on macOS the loader
+# aborts with "OMP Error #15" when both init in the same process. Allowing the
+# duplicate is safe here — the two libraries do not run OpenMP kernels
+# concurrently in our workload.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
