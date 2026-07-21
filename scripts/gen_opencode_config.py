@@ -27,11 +27,23 @@ MODEL_CAPS = {
 
 PERMISSION = {
     "edit": {"*": "deny", "**/cadquery.py": "allow"},
-    "skill": {"cadquery-studio": "allow", "cad-vision-brief": "allow"},
+    "skill": {
+        "cadquery-studio": "allow",
+        "cad-vision-brief": "allow",
+        "knowledge-base": "allow",
+    },
     "question": "deny",
     "bash": "deny",
     "webfetch": "deny",
 }
+
+# Custom MCP servers exposing project tools to opencode.
+# The script cad_kb_mcp.py is stdlib-only and proxies to the backend at
+# CAD_KB_URL (default http://127.0.0.1:8000/api/knowledge).
+MCP_SCRIPT = ROOT / "scripts" / "cad_kb_mcp.py"
+MCP_SERVER_ID = "cad-kb"
+# opencode registers MCP tools as `${serverId}_${toolName}`.
+MCP_TOOL_NAME = f"{MCP_SERVER_ID}_search_knowledge"
 
 
 def _models_from_file(data: dict) -> list[dict]:
@@ -104,16 +116,38 @@ def main() -> int:
             "models": {m["id"]: dict(MODEL_CAPS)},
         }
 
+    kb_url = (
+        os.environ.get("CAD_KB_URL")
+        or f"http://127.0.0.1:{os.environ.get('BACKEND_PORT', '8000')}/api/knowledge"
+    )
+    python_bin = os.environ.get("CAD_KB_MCP_PYTHON") or sys.executable or "python3"
+    mcp = {
+        MCP_SERVER_ID: {
+            "type": "local",
+            "command": [python_bin, "-u", str(MCP_SCRIPT)],
+            "enabled": True,
+            "environment": {"CAD_KB_URL": kb_url},
+        }
+    }
+
+    permission = dict(PERMISSION)
+    tools = {MCP_TOOL_NAME: True}
+
     config = {
         "$schema": "https://opencode.ai/config.json",
         "provider": providers,
         "model": f"{default_id}/{default_id}",
-        "permission": PERMISSION,
+        "permission": permission,
+        "mcp": mcp,
+        "tools": tools,
     }
 
     out_path.write_text(json.dumps(config, indent=2, ensure_ascii=False))
     ids = ", ".join(m["id"] for m in models)
-    print(f"opencode 配置已生成：{out_path}（默认={default_id}，模型=[{ids}]）")
+    print(
+        f"opencode 配置已生成：{out_path}（默认={default_id}，模型=[{ids}]，"
+        f"MCP=[{MCP_SERVER_ID}→{kb_url}]）"
+    )
     return 0
 
 

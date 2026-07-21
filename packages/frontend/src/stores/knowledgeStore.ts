@@ -17,6 +17,7 @@ export interface KnowledgeHit {
   page: number;
   heading: string;
   text: string;
+  polished_text?: string;
 }
 
 interface KnowledgeStore {

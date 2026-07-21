@@ -11,6 +11,7 @@ import {
   useKnowledgeStore,
   type KnowledgeHit,
 } from "@/stores/knowledgeStore";
+import { MarkdownContent } from "@/components/chat/MarkdownContent";
 
 export function KnowledgePanel() {
   const {
@@ -196,22 +197,47 @@ export function KnowledgePanel() {
 
 function HitCard({ hit }: { hit: KnowledgeHit }) {
   const [open, setOpen] = useState(false);
-  const preview = hit.text.length > 140 && !open ? hit.text.slice(0, 140) + "…" : hit.text;
+  const [showRaw, setShowRaw] = useState(false);
+  const polished = hit.polished_text?.trim();
+  const rawText = hit.text ?? "";
+  const usePolished = !!polished && !showRaw;
+  const rawPreview =
+    rawText.length > 140 && !open ? rawText.slice(0, 140) + "…" : rawText;
+
   return (
-    <button
-      type="button"
-      onClick={() => setOpen((v) => !v)}
-      className="w-full text-left rounded-md border border-border bg-cream px-2 py-1.5 hover:border-primary/40 transition-colors"
-    >
+    <div className="rounded-md border border-border bg-cream px-2 py-1.5">
       <div className="flex items-center justify-between text-[10px] text-text-secondary">
-        <span className="truncate">
-          {hit.filename} · 第 {hit.page} 页{hit.heading ? ` · ${hit.heading}` : ""}
-        </span>
-        <span className="font-mono">score {hit.score}</span>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="truncate flex-1 text-left hover:text-text-primary"
+        >
+          {hit.filename} · 第 {hit.page} 页
+          {hit.heading ? ` · ${hit.heading}` : ""}
+        </button>
+        <div className="flex items-center gap-2 ml-2">
+          {polished && (
+            <button
+              type="button"
+              onClick={() => setShowRaw((v) => !v)}
+              className="text-[10px] text-text-secondary hover:text-text-primary underline decoration-dotted"
+            >
+              {showRaw ? "整理后" : "原文"}
+            </button>
+          )}
+          <span className="font-mono">score {hit.score}</span>
+        </div>
       </div>
-      <div className="mt-1 text-[11px] leading-relaxed text-text-primary whitespace-pre-wrap break-words">
-        {preview}
-      </div>
-    </button>
+      {usePolished ? (
+        <MarkdownContent
+          content={polished!}
+          className="mt-1 prose prose-sm max-w-full text-[11px] leading-relaxed text-text-primary [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_code]:rounded [&_code]:bg-cream-dark [&_code]:px-1 [&_code]:text-[10px] [&_table]:block [&_table]:overflow-x-auto [&_table]:text-[10px] [&_th]:border [&_th]:border-border [&_th]:px-1.5 [&_th]:py-0.5 [&_td]:border [&_td]:border-border [&_td]:px-1.5 [&_td]:py-0.5"
+        />
+      ) : (
+        <div className="mt-1 text-[11px] leading-relaxed text-text-primary whitespace-pre-wrap break-words">
+          {rawPreview}
+        </div>
+      )}
+    </div>
   );
 }

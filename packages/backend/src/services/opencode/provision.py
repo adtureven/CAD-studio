@@ -6,6 +6,7 @@ subdirectory holding the only file the agent may edit: ``cadquery.py``.
 """
 
 import json
+import sys
 from pathlib import Path
 
 from ...config import settings
@@ -17,6 +18,10 @@ AGENTS_FILE_NAME = "AGENTS.md"
 _SYSTEM_PROMPT_PATH = (
     Path(__file__).resolve().parents[1] / "ai" / "prompts" / "system_cad_agent.md"
 )
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+_MCP_SCRIPT = _PROJECT_ROOT / "scripts" / "cad_kb_mcp.py"
+MCP_SERVER_ID = "cad-kb"
+MCP_TOOL_NAME = f"{MCP_SERVER_ID}_search_knowledge"
 
 _DEFAULT_CAD_SOURCE = (
     "import cadquery as cq\n\n"
@@ -93,11 +98,25 @@ def build_root_config() -> dict:
             "skill": {
                 "cadquery-studio": "allow",
                 "cad-vision-brief": "allow",
+                "knowledge-base": "allow",
             },
             "question": "deny",
             "bash": "deny",
             "webfetch": "deny",
         },
+        "mcp": {
+            MCP_SERVER_ID: {
+                "type": "local",
+                "command": [sys.executable or "python3", "-u", str(_MCP_SCRIPT)],
+                "enabled": True,
+                "environment": {
+                    "CAD_KB_URL": (
+                        f"http://127.0.0.1:{settings.backend_port}/api/knowledge"
+                    ),
+                },
+            },
+        },
+        "tools": {MCP_TOOL_NAME: True},
     }
 
 
@@ -145,9 +164,10 @@ def _agents_md() -> str:
         + "\n\n## opencode 运行约束\n\n"
         "- 你只能编辑当前会话目录下的 cadquery.py；可以读取已允许的 skill 指令和参考文件；禁止 shell、网络与其它项目文件。\n"
         "- 不要向用户提问或等待确认（question 工具已禁用）。需求不明确时，自行做出合理的工程假设直接建模，并在代码注释或最终总结里说明你的假设。\n"
-        "- 可用技能：cadquery-studio 负责 CadQuery 建模与修复；cad-vision-brief 负责把图片、截图、扫描件、草图或制图提炼成结构化 CAD brief。\n"
+        "- 可用技能：cadquery-studio 负责 CadQuery 建模与修复；cad-vision-brief 负责把图片、截图、扫描件、草图或制图提炼成结构化 CAD brief；knowledge-base 负责从用户上传的手册/国标 PDF 中检索标准数值。\n"
         "- 如果输入里有图片或图纸，通常先用 cad-vision-brief 提炼 brief，再用 cadquery-studio 建模；如果文字已经足够清楚，可直接进入 cadquery-studio。不要把这条做成固定路由，按任务复杂度自主选择。\n"
         "- 建模、修改或修复 CAD 时必须使用 cadquery-studio skill，并按其中的质量门槛检查需求覆盖、参数安全、几何稳定和渲染结果。\n"
+        f"- 涉及国标/ISO 标准数值、模数、公差配合、螺纹规格、材料许用应力等硬指标时，先按 knowledge-base skill 的规范调用 MCP 工具 `{MCP_TOOL_NAME}` 检索，再据此建模；具体查询策略、失败处理与引用格式见该 skill。禁止凭空发明这些数值。\n"
         "- 修改后无需自己运行渲染：后端会在你完成后自动执行 cadquery.py。\n"
         "- 必须保证 cadquery.py 是合法的 CadQuery Python，并把最终模型赋值给 result 变量。\n"
     )
